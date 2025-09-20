@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Rigging CG Helper</title>
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; }
+  h1 { font-size: 18px; margin: 0 0 10px; }
+  fieldset { border: 1px solid #ccc; border-radius: 8px; margin: 10px 0; padding: 10px; }
+  legend { padding: 0 6px; }
+  label { display: block; margin: 6px 0 2px; font-size: 14px; }
+  select, input[type="number"], input[type="text"] { width: 100%; font-size: 16px; padding: 8px; box-sizing: border-box; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .btn { display: inline-block; padding: 10px 12px; margin: 8px 6px 0 0; border-radius: 8px; background: #0d6efd; color: #fff; border: none; font-size: 16px; }
+  .btn.secondary { background: #6c757d; }
+  .items { margin-top: 6px; }
+  .item { padding: 8px; border: 1px dashed #999; border-radius: 8px; margin-bottom: 8px; font-size: 14px; }
+  .hint { color: #555; font-size: 13px; }
+  canvas { width: 100%; max-width: 800px; background: #fff; border: 1px solid #ddd; border-radius: 8px; }
+  .out { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #e9ecef; }
+</style>
+</head>
+<body>
+<h1>Rigging CG Helper</h1>
+
+<fieldset>
+  <legend>Pick setup</legend>
+  <div class="row">
+    <label>Pick mode
+      <select id="pickMode">
+        <option value="2">2 picks</option>
+        <option value="4">4 contacts (two baskets)</option>
+      </select>
+    </label>
+    <label>Pick spacing (in)
+      <input id="pickSpacing" type="number" inputmode="decimal" value="72">
+    </label>
+  </div>
+  <div class="row" id="basketRow" style="display:none">
+    <label>Basket spread per side (in)
+      <input id="basketSpread" type="number" inputmode="decimal" value="12">
+    </label>
+    <label>No-roll torque threshold (ft-lb, optional)
+      <input id="rollThresh" type="number" inputmode="decimal" placeholder="">
+    </label>
+  </div>
+  <div class="hint">Chokers are 20 ft by default (info only). Arrowheads mark contact locations at Y=0 in the drawings.</div>
+</fieldset>
+
+<fieldset>
+  <legend>Add item</legend>
+  <div class="row">
+    <label>Item type
+      <select id="itemType">
+        <option value="P">24" pipe (per-inch)</option>
+        <option value="V">24" valve (regular)</option>
+        <option value="I">24" valve inline</option>
+        <option value="C">24" coupling (weight only)</option>
+        <option value="E">24" 90° elbow</option>
+        <option value="F">24" 45° elbow</option>
+        <option value="T">24" tee (plain)</option>
+        <option value="W">24" tee with valve</option>
+        <option value="G">Single 90 with valve</option>
+        <option value="X">Custom per-inch</option>
+        <option value="Y">Custom fixed</option>
+      </select>
+    </label>
+    <label>Orientation (A=X+, B=X−, C=Y+, D=Y−, E=Z+, F=Z−)
+      <select id="orient">
+        <option value="A" selected>A (X+)</option>
+        <option value="B">B (X−)</option>
+        <option value="C">C (Y+)</option>
+        <option value="D">D (Y−)</option>
+        <option value="E">E (Z+)</option>
+        <option value="F">F (Z−)</option>
+      </select>
+    </label>
+  </div>
+
+  <!-- dynamic detail row switches per type -->
+  <div class="row" id="lenRow" style="display:block">
+    <label>Length (in)
+      <input id="lenIn" type="number" inputmode="decimal" value="0">
+    </label>
+    <label id="wpiLabel">Weight per inch (lb/in)
+      <input id="wpi" type="number" inputmode="decimal" value="8.2">
+    </label>
+  </div>
+
+  <div class="row" id="fixedRow" style="display:none">
+    <label>Total weight (lb)
+      <input id="fixedW" type="number" inputmode="decimal" value="0">
+    </label>
+    <label>Effective length along chosen axis (in)
+      <input id="fixedL" type="number" inputmode="decimal" value="0">
+    </label>
+  </div>
+
+  <div id="single90Row" class="row" style="display:none">
+    <label>Straight before 90 (in)
+      <input id="s90_before" type="number" inputmode="decimal" value="0">
+    </label>
+    <label>Extra straight AFTER 90 (in)
+      <input id="s90_after" type="number" inputmode="decimal" value="0">
+    </label>
+    <label>Valve type
+      <select id="s90_vtype">
+        <option value="S">Standard</option>
+        <option value="I">Inline</option>
+      </select>
+    </label>
+  </div>
+
+  <button class="btn" id="addBtn">Add item</button>
+  <button class="btn secondary" id="clearBtn" type="button">Clear list</button>
+
+  <div class="items" id="items"></div>
+</fieldset>
+
+<button class="btn" id="computeBtn">Compute + Draw</button>
+<button class="btn secondary" id="downloadBtn" disabled>Download PNG</button>
+
+<fieldset>
+  <legend>Output (quick)</legend>
+  <div id="summary" class="out"></div>
+</fieldset>
+
+<fieldset>
+  <legend>Drawings</legend>
+  <canvas id="sheet" width="1000" height="1600"></canvas>
+  <div class="hint">The sheet stacks: Plan (X–Y), Elevation (X–Z), and the rigging directions.</div>
+</fieldset>
+
+<script>
+/* ---------------- Constants to match your Python ---------------- */
+const PIPE_DIAM_IN = 24.0;
+const PIPE_R_IN = PIPE_DIAM_IN / 2.0;
+const W_PER_IN_DEFAULT = 8.2;
+
+const W_EL90=475.0, S_EL90=36.0, R_EL90=(2*S_EL90)/Math.PI;
+const W_EL45=240.0, S_EL45=15.0;
+
+const W_COUP=115.0;
+
+const W_VALVE_BODY=451.0, L_VALVE_STD=12.0;
+const W_VALVE_INLINE=631.0, L_VALVE_INLINE=12.0;
+
+const W_TEE_BODY=477.0, L_TEE=20.0;
+
+const DEFAULT_PICK_SPACING=72.0;
+const DEFAULT_BASKET_SPREAD=12.0;
+
+/* ---------------- Helpers ---------------- */
+const ORIENTS = {
+  A: [ 1, 0, 0], B: [-1, 0, 0],
+  C: [ 0, 1, 0], D: [ 0,-1, 0],
+  E: [ 0, 0, 1], F: [ 0, 0,-1],
+};
+
+function roundToQuarter(x){ return Math.round(x*4)/4; }
+function fmtFtIn(x){
+  const v=roundToQuarter(x);
+  const ft=Math.floor(v/12);
+  let rem=v-ft*12;
+  if(Math.abs(rem-12)<1e-9){ rem=0; }
+  const whole=Math.floor(rem);
+  const frac=Math.round((rem-whole)*100)/100;
+  const map={0.00:"",0.25:"-1/4",0.50:"-1/2",0.75:"-3/4"};
+  const tag=map.hasOwnProperty(frac)?map[frac]:null;
+  const inch = tag!==null? `${whole}${tag}"` : `${rem.toFixed(2)}"`;
+  return ft? `${ft}' ${inch}` : inch;
+}
+function roundToEighth(x){ return Math.round(x*8)/8; }
+function fmtEighthIn(x){
+  const v=roundToEighth(x);
+  const whole=Math.floor(v);
+  const frac=v-whole;
+  const fr={0.0:"",0.125:" 1/8",0.25:" 1/4",0.375:" 3/8",0.5:" 1/2",0.625:" 5/8",0.75:" 3/4",0.875:" 7/8"};
+  if(fr.hasOwnProperty(frac)){
+    if(whole) return `${whole}${fr[frac]}"`;
+    return fr[frac]? `${fr[frac].trim()}"` : `0"`;
+  }
+  return `${v.toFixed(3)}"`;
+}
+function rollAngleDegForY(y_cg, R=PIPE_R_IN){
+  const y=Math.max(-R, Math.min(R, y_cg));
+  return R>0? (Math.asin(y/R)*180/Math.PI) : 0;
+}
+// elbow centroid for 90° (wire arc) — only need magnitude projected in local XY
+function elbowCentroidRho(R){ return R*(Math.sin(Math.PI/4)/(Math.PI/4)); }
+
+/* ---------------- State ---------------- */
+let items = [];      // for X-span CG and total W
+let pathSteps = [];  // 3D path segments [dx,dy,dz]
+let marks = [];      // label marks [idx,x,y,z]
+let xCursor = 0;     // for span placement (only |X|)
+
+/* ---------------- UI wiring ---------------- */
+const el = id=>document.getElementById(id);
+const pickModeEl = el('pickMode');
+const pickSpacingEl = el('pickSpacing');
+const basketRow = el('basketRow');
+const basketSpreadEl = el('basketSpread');
+const rollThreshEl = el('rollThresh');
+const itemTypeEl = el('itemType');
+const orientEl = el('orient');
+const lenRow = el('lenRow');
+const wpiEl = el('wpi');
+const wpiLabel = el('wpiLabel');
+const lenInEl = el('lenIn');
+const fixedRow = el('fixedRow');
+const fixedWEl = el('fixedW');
+const fixedLEl = el('fixedL');
+const single90Row = el('single90Row');
+const s90_beforeEl = el('s90_before');
+const s90_afterEl = el('s90_after');
+const s90_vtypeEl = el('s90_vtype');
+const itemsDiv = el('items');
+const summaryDiv = el('summary');
+const sheet = el('sheet');
+const ctx = sheet.getContext('2d');
+
+pickModeEl.addEventListener('change', ()=>{
+  basketRow.style.display = pickModeEl.value==='4' ? 'grid' : 'none';
+});
+itemTypeEl.addEventListener('change', updateDetailRows);
+function updateDetailRows(){
+  const t=itemTypeEl.value;
+  lenRow.style.display = (t==='P'||t==='E'||t==='F'||t==='T'||t==='W') ? 'none' : 'grid';
+  // Defaults for each:
+  if(t==='P'){ lenRow.style.display='grid'; wpiLabel.style.display='block'; }
+  else if(t==='X'){ lenRow.style.display='grid'; wpiLabel.style.display='block'; }
+  else if(t==='Y'){ fixedRow.style.display='grid'; } else { fixedRow.style.display='none'; }
+  if(t==='G') single90Row.style.display='grid'; else single90Row.style.display='none';
+  if(t!=='X') wpiEl.value=W_PER_IN_DEFAULT;
+}
+updateDetailRows();
+
+/* ---------------- Item builders ---------------- */
+function addItemSummary(text){
+  const div=document.createElement('div'); div.className='item'; div.textContent=text;
+  itemsDiv.appendChild(div);
+}
+function resetAccumulators(){
+  items=[]; pathSteps=[]; marks=[]; xCursor=0;
+}
+
+function advancePath(len, dir, idx){
+  const last = marks.length? [marks[marks.length-1][1], marks[marks.length-1][2], marks[marks.length-1][3]] : [0,0,0];
+  // We track a running point by summing pathSteps
+  let cur=[0,0,0];
+  for(const s of pathSteps){ cur=[cur[0]+s[0], cur[1]+s[1], cur[2]+s[2]]; }
+  const mid=[cur[0]+dir[0]*len/2, cur[1]+dir[1]*len/2, cur[2]+dir[2]*len/2];
+  marks.push([idx, mid[0], mid[1], mid[2]]);
+  pathSteps.push([dir[0]*len, dir[1]*len, dir[2]*len]);
+}
+
+function addItem(){
+  const t=itemTypeEl.value;
+  const idx = items.length+1;
+  const [dx,dy,dz] = ORIENTS[orientEl.value] || [1,0,0];
+
+  function placeLinear(name, L, W, xcgLocal=null){
+    L=Math.max(0, +L); if(xcgLocal===null) xcgLocal=L/2;
+    const Lx=L*Math.abs(dx);
+    items.push({name, length:Lx, weight:W, xcg_local: (Math.abs(dx)>0? xcgLocal:0)});
+    // path & labels
+    advancePath(L, [dx,dy,dz], idx);
+    // span
+    xCursor += Lx;
+  }
+
+  if(t==='P'){
+    const L=+lenInEl.value||0, wpi=+wpiEl.value||W_PER_IN_DEFAULT;
+    const W=wpi*L;
+    placeLinear('24" pipe (per-inch)', L, W);
+    addItemSummary(`${idx}. Pipe ${L.toFixed(1)} in @ ${wpi} lb/in  -> ${W.toFixed(1)} lb`);
+
+  }else if(t==='X'){
+    const L=+lenInEl.value||0, wpi=+wpiEl.value||W_PER_IN_DEFAULT;
+    const W=wpi*L;
+    placeLinear('Custom per-inch', L, W);
+    addItemSummary(`${idx}. Custom per-inch ${L.toFixed(1)} in @ ${wpi} -> ${W.toFixed(1)} lb`);
+
+  }else if(t==='Y'){
+    const W=+fixedWEl.value||0, L=+fixedLEl.value||0;
+    placeLinear('Custom fixed', L, W);
+    addItemSummary(`${idx}. Custom fixed ${W.toFixed(1)} lb, eff L=${L.toFixed(1)} in`);
+
+  }else if(t==='V'){
+    const L=L_VALVE_STD, W=W_VALVE_BODY + W_COUP;
+    const xcgLocal=(W_VALVE_BODY*(L/2) + W_COUP*0)/W;
+    placeLinear('24" valve (regular)', L, W, xcgLocal);
+    addItemSummary(`${idx}. Valve (regular) L=${L} in, W=${W.toFixed(1)} lb`);
+
+  }else if(t==='I'){
+    const L=L_VALVE_INLINE, W=W_VALVE_INLINE;
+    placeLinear('24" valve (inline)', L, W);
+    addItemSummary(`${idx}. Valve (inline) L=${L} in, W=${W.toFixed(1)} lb`);
+
+  }else if(t==='C'){
+    // weight-only, no length
+    items.push({name:'24" coupling', length:0, weight:W_COUP, xcg_local:0});
+    advancePath(1, [dx,dy,dz], idx);
+    addItemSummary(`${idx}. Coupling W=${W_COUP.toFixed(1)} lb`);
+
+  }else if(t==='E'){
+    const L=S_EL90, W=W_EL90+W_COUP;
+    const xcgLocal=(W_EL90*(L/2)+W_COUP*0)/W;
+    placeLinear('24" 90° elbow', L, W, xcgLocal);
+    addItemSummary(`${idx}. 90° elbow L=${L} in, W=${W.toFixed(1)} lb`);
+
+  }else if(t==='F'){
+    const L=S_EL45, W=W_EL45+W_COUP;
+    const xcgLocal=(W_EL45*(L/2)+W_COUP*0)/W;
+    placeLinear('24" 45° elbow', L, W, xcgLocal);
+    addItemSummary(`${idx}. 45° elbow L=${L} in, W=${W.toFixed(1)} lb`);
+
+  }else if(t==='T'){
+    const L=L_TEE, W=W_TEE_BODY+W_COUP;
+    const xcgLocal=(W_TEE_BODY*(L/2)+W_COUP*0)/W;
+    placeLinear('24" tee (plain)', L, W, xcgLocal);
+    addItemSummary(`${idx}. Tee (plain) L=${L} in, W=${W.toFixed(1)} lb`);
+
+  }else if(t==='W'){
+    const L=L_TEE;
+    const parts=[
+      [W_TEE_BODY, L/2, 0],
+      [W_VALVE_BODY, L/2, L_VALVE_STD/2],
+      [W_COUP, 0, 0],
+      [W_COUP, L/2, 0],
+    ];
+    const W = parts.reduce((a,p)=>a+p[0],0);
+    const xcgLocal = parts.reduce((a,p)=>a+p[0]*p[1],0)/W;
+    // ycg at +valve side in local; we just use for info text, X-span uses xcgLocal only.
+    placeLinear('24" tee with valve', L, W, xcgLocal);
+    addItemSummary(`${idx}. Tee w/ valve L=${L} in, W=${W.toFixed(1)} lb`);
+
+  }else if(t==='G'){
+    const Ls=+s90_beforeEl.value||0, La=+s90_afterEl.value||0;
+    const inline = (s90_vtypeEl.value==='I');
+    // local assembly (X->Y), but we treat span along chosen axis = x_span
+    const R=R_EL90;
+    const W1=W_PER_IN_DEFAULT*Ls, C1x=Ls/2, C1y=0;
+    const rho=elbowCentroidRho(R);
+    const dx2=rho*Math.cos(Math.PI/4), dy2=rho*Math.sin(Math.PI/4);
+    const C2x=Ls+dx2, C2y=R+dy2, W2=W_EL90;
+    const Eout=[Ls+R, R];
+    let parts=[[W1,C1x,C1y],[W2,C2x,C2y]];
+    let Wv, Lv, C3x, C3y, WbranchBase;
+    if(inline){
+      Wv=W_VALVE_INLINE; Lv=L_VALVE_INLINE;
+      C3x=Eout[0]; C3y=Eout[1];
+      WbranchBase=Wv;
+      parts.push([Wv,C3x,C3y]);
+    }else{
+      Wv=W_VALVE_BODY; Lv=L_VALVE_STD;
+      C3x=Eout[0]; C3y=Eout[1]+Lv/2;
+      WbranchBase=Wv+W_COUP;
+      parts.push([Wv,C3x,C3y],[W_COUP,Eout[0],Eout[1]]);
+    }
+    let Wafter=0;
+    if(La>0){
+      Wafter=W_PER_IN_DEFAULT*La;
+      const Cax=Eout[0], Cay=Eout[1] + (!inline?Lv:0) + La/2;
+      parts.push([Wafter,Cax,Cay]);
+    }
+    const Wt=parts.reduce((a,p)=>a+p[0],0);
+    const xcg=parts.reduce((a,p)=>a+p[0]*p[1],0)/Wt;
+    const x_span=Math.max(Ls, Eout[0], C3x);
+    // Treat as straight span of length x_span in chosen axis:
+    const L=x_span, W=Wt;
+    const xcgLocal=xcg;
+    placeLinear('Single 90 with valve', L, W, xcgLocal);
+    addItemSummary(`${idx}. Single 90 + valve (Ls=${Ls} in, La=${La} in, ${inline?'inline':'std'})  -> W=${W.toFixed(1)} lb`);
+  }
+}
+
+el('addBtn').addEventListener('click', (e)=>{ e.preventDefault(); addItem(); });
+el('clearBtn').addEventListener('click', (e)=>{ e.preventDefault(); items=[]; pathSteps=[]; marks=[]; xCursor=0; itemsDiv.innerHTML=''; summaryDiv.textContent=''; ctx.clearRect(0,0,sheet.width,sheet.height); el('downloadBtn').disabled=true; });
+
+/* ---------------- Compute + draw ---------------- */
+el('computeBtn').addEventListener('click', ()=>{
+  if(items.length===0){ alert('Add at least one item.'); return; }
+
+  const pickMode = pickModeEl.value;
+  const pickSpacing = Math.max(0, +pickSpacingEl.value || DEFAULT_PICK_SPACING);
+  const basketSpread = pickMode==='4' ? Math.max(0, +basketSpreadEl.value||DEFAULT_BASKET_SPREAD) : 0;
+  const rollThresh = rollThreshEl.value==='' ? null : Math.max(0, +rollThreshEl.value);
+
+  // Totals & 1D CG along X
+  const totalLength = items.reduce((a,it)=>a+it.length,0);
+  const totalWeight = items.reduce((a,it)=>a+it.weight,0);
+  let pos=0, tm=0;
+  for(const it of items){
+    const c = pos + (it.xcg_local ?? it.length/2);
+    tm += it.weight*c;
+    pos += it.length;
+  }
+  const cg_x = totalWeight>0 ? tm/totalWeight : 0;
+
+  // For Y/Z CG: approximate by placing each mass at mid of its own axis run
+  // (In this simplified web version, we don’t have per-item dy/dz lengths kept, so we use path steps midpoint labels.)
+  // We’ll re-walk the marks with weights distributed proportionally by item order.
+  // Simpler: take CG from marks weighted by proportional item weight apportion on each linear piece.
+  // Since marks are already midpoints of each item segment in 3D, use item midpoints as (x,y,z) for CG_y/z:
+  let tw=0, yMom=0, zMom=0;
+  for(let i=0;i<items.length;i++){
+    const it=items[i];
+    const m=marks[i] || [0,0,0,0];
+    const y=m[2], z=m[3];
+    yMom += it.weight * y;
+    zMom += it.weight * z;
+    tw += it.weight;
+  }
+  const cg_y = tw>0 ? yMom/tw : 0;
+  const cg_z = tw>0 ? zMom/tw : 0;
+
+  // Picks centered on CG.x and fit inside [0, totalLength]
+  let leftCenter = Math.max(0, cg_x - pickSpacing/2);
+  let rightCenter = leftCenter + pickSpacing;
+  if(rightCenter>totalLength){ rightCenter=totalLength; leftCenter=Math.max(0, rightCenter-pickSpacing); }
+
+  let picksForImage, picksInfo;
+  if(pickMode==='2'){
+    picksForImage=[leftCenter, rightCenter];
+    picksInfo={mode:'2', picks:picksForImage};
+  }else{
+    const s=basketSpread;
+    const L1=Math.max(0, leftCenter - s/2), L2=Math.min(totalLength, leftCenter + s/2);
+    const R1=Math.max(0, rightCenter - s/2), R2=Math.min(totalLength, rightCenter + s/2);
+    picksForImage=[L1,L2,R1,R2];
+    picksInfo={mode:'4', picks:picksForImage, basket_spread:s};
+  }
+
+  // Roll + circumference arc
+  const roll_deg = rollAngleDegForY(cg_y, PIPE_R_IN);
+  const roll_side = cg_y>0? 'toward +Y' : (cg_y<0? 'toward -Y' : 'no roll needed');
+  const arc_in = PIPE_R_IN * (Math.abs(roll_deg)*Math.PI/180);
+  const arc_in_str = fmtEighthIn(arc_in);
+
+  // Joint roll risk: simple note, since full coupling registry is heavy for the web version
+  const rollRisk = "(Note) For couplings with branches, add keepers/secondary control if you observe twisting tendency.";
+
+  // Directions text
+  const lines=[];
+  lines.push(`Total weight: ${totalWeight.toFixed(1)} lb`);
+  lines.push(`Span X: ${totalLength.toFixed(2)} in (${fmtFtIn(totalLength)})`);
+  lines.push(`CG: X=${cg_x.toFixed(2)} in (${fmtFtIn(cg_x)}), Y=${cg_y.toFixed(2)} in, Z=${cg_z.toFixed(2)} in`);
+  if(pickMode==='2'){
+    lines.push(`Picks: Left=${fmtFtIn(picksForImage[0])}, Right=${fmtFtIn(picksForImage[1])} (spacing ${fmtFtIn(pickSpacing)})`);
+  }else{
+    const [L1,L2,R1,R2]=picksForImage;
+    lines.push(`Baskets (4 contacts): L-=${fmtFtIn(L1)}, L+=${fmtFtIn(L2)}, R-=${fmtFtIn(R1)}, R+=${fmtFtIn(R2)}`);
+    lines.push(`Basket spread per side: ${fmtFtIn(basketSpread)}`);
+  }
+  lines.push(`Roll chokers ~ ${roll_deg.toFixed(1)} deg ${roll_side} for Y leveling`);
+  lines.push(`Roll arc along circumference per choker ~ ${arc_in_str}`);
+  if(rollThresh!==null) lines.push(`No-roll threshold (ft-lb): ${rollThresh.toFixed(0)} (visual check)`);
+  lines.push(rollRisk);
+  lines.push(`Notes: Couplings are weight-only at LEFT/start faces unless noted. Inline valves are balanced.`);
+
+  // Draw stacked sheet: Plan (X–Y), Elevation (X–Z), Directions
+  drawSheet(picksInfo, lines);
+
+  // Quick console summary pane
+  let s="--- Summary ---\n";
+  items.forEach((it,i)=>{ s += `${(i+1).toString().padStart(2,' ')}. ${it.name} | length=${it.length.toFixed(2)} in | weight=${it.weight.toFixed(1)} lb\n`; });
+  s += `\nSpan X: ${totalLength.toFixed(2)} in (${fmtFtIn(totalLength)})\n`;
+  s += `Total weight: ${totalWeight.toFixed(1)} lb\n`;
+  s += `CG: X=${cg_x.toFixed(2)} in (${fmtFtIn(cg_x)}), Y=${cg_y.toFixed(2)} in, Z=${cg_z.toFixed(2)} in\n`;
+  if(pickMode==='2'){ s += `Picks: L=${fmtFtIn(picksForImage[0])}, R=${fmtFtIn(picksForImage[1])}\n`; }
+  else{
+    const [L1,L2,R1,R2]=picksForImage;
+    s += `Contacts: L-=${fmtFtIn(L1)}, L+=${fmtFtIn(L2)}, R-=${fmtFtIn(R1)}, R+=${fmtFtIn(R2)}\n`;
+  }
+  s += `Roll ~ ${roll_deg.toFixed(1)} deg ${roll_side}\n`;
+  s += `Roll arc along circumference per choker ~ ${arc_in_str}\n`;
+  summaryDiv.textContent = s;
+
+  // enable download
+  el('downloadBtn').disabled=false;
+});
+
+el('downloadBtn').addEventListener('click', ()=>{
+  const a=document.createElement('a');
+  const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  a.download = `${ts}_rigging.png`;
+  a.href = sheet.toDataURL('image/png');
+  a.click();
+});
+
+/* ---------------- Drawing ---------------- */
+function drawSheet(picksInfo, lines){
+  // Clear
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,sheet.width,sheet.height);
+  const W=sheet.width, H=sheet.height;
+  // Regions
+  const pad=24;
+  const secH = Math.floor((H - pad*4)/3);
+  const planRect = {x:pad, y:pad, w:W-2*pad, h:secH};
+  const elevRect = {x:pad, y:pad*2+secH, w:W-2*pad, h:secH};
+  const textRect = {x:pad, y:pad*3+secH*2, w:W-2*pad, h:secH};
+
+  // Build vertices from pathSteps:
+  const verts=[[0,0,0]];
+  let cur=[0,0,0];
+  for(const s of pathSteps){
+    cur=[cur[0]+s[0], cur[1]+s[1], cur[2]+s[2]];
+    verts.push(cur.slice());
+  }
+  const px=verts.map(v=>v[0]), py=verts.map(v=>v[1]), pz=verts.map(v=>v[2]);
+  drawProjection(px, py, marks, picksInfo, planRect, "Plan (X–Y)");
+  drawProjection(px, pz, marks.map(m=>[m[0],m[1],m[3]]), picksInfo, elevRect, "Elevation (X–Z)");
+  drawTextPanel(lines, textRect);
+}
+
+function drawProjection(px, py, markPairs, picksInfo, rect, title){
+  // bounds
+  const minX=Math.min(...px), maxX=Math.max(...px);
+  const minY=Math.min(...py, -1), maxY=Math.max(...py, 1);
+  const pad=40;
+  const sx = (rect.w - pad*2) / ((maxX-minX) || 1);
+  const sy = (rect.h - pad*2) / ((maxY-minY) || 1);
+  const s = Math.min(sx, sy);
+  const x0 = rect.x + pad + (rect.w - pad*2 - s*(maxX-minX))/2;
+  const y0 = rect.y + rect.h - pad - (rect.h - pad*2 - s*(maxY-minY))/2;
+
+  // axes labels
+  ctx.fillStyle='#000'; ctx.font='16px system-ui';
+  ctx.fillText(title, rect.x, rect.y-6);
+
+  // axes zero line (Y=0)
+  const mapX = x=> x0 + (x-minX)*s;
+  const mapY = y=> y0 - (y-minY)*s;
+  ctx.strokeStyle='#ddd'; ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.moveTo(mapX(minX), mapY(0));
+  ctx.lineTo(mapX(maxX), mapY(0));
+  ctx.stroke();
+
+  // polyline
+  ctx.strokeStyle='#000'; ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(mapX(px[0]), mapY(py[0]));
+  for(let i=1;i<px.length;i++){
+    ctx.lineTo(mapX(px[i]), mapY(py[i]));
+  }
+  ctx.stroke();
+
+  // labels
+  ctx.fillStyle='#000'; ctx.font='12px system-ui';
+  for(const m of marks){
+    // m: [idx,x,y,z] but markPairs expects [idx, x, yProjected]
+    const idx=m[0]; const x=m[1];
+    const y = (markPairs.find(mm=>mm[0]===idx)||[0,0,0])[2];
+    ctx.fillText(String(idx), mapX(x), mapY(y));
+  }
+
+  // picks arrowheads
+  ctx.strokeStyle='#000'; ctx.fillStyle='#000';
+  if(picksInfo.mode==='2'){
+    const [xl, xr]=picksInfo.picks;
+    drawArrow(mapX(xl), mapY(0), 10);
+    drawArrow(mapX(xr), mapY(0), 10);
+    ctx.fillText('Pick L', mapX(xl)+4, mapY(0)-4);
+    ctx.fillText('Pick R', mapX(xr)+4, mapY(0)-4);
+  }else{
+    const [L1,L2,R1,R2]=picksInfo.picks;
+    [[L1,'L-'],[L2,'L+'],[R1,'R-'],[R2,'R+']].forEach(([x,label])=>{
+      drawArrow(mapX(x), mapY(0), 10);
+      ctx.fillText(label, mapX(x)+4, mapY(0)-4);
+    });
+  }
+
+  // border
+  ctx.strokeStyle='#bbb'; ctx.lineWidth=1;
+  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+}
+
+function drawArrow(x, y, size){
+  ctx.beginPath();
+  ctx.moveTo(x, y - size);
+  ctx.lineTo(x, y);
+  ctx.lineTo(x - size/2, y - size/2);
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + size/2, y - size/2);
+  ctx.stroke();
+}
+
+function drawTextPanel(lines, rect){
+  ctx.strokeStyle='#bbb'; ctx.lineWidth=1;
+  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.fillStyle='#000';
+  ctx.font='16px system-ui';
+  ctx.fillText('Rigging directions', rect.x+8, rect.y+24);
+  ctx.font='13px ui-monospace, monospace';
+  const lh=18;
+  let y=rect.y+24+8;
+  const maxW=rect.w-16;
+  for(const line of lines){
+    y = drawWrappedText(line, rect.x+8, y, maxW, lh);
+    y += 4;
+  }
+}
+
+function drawWrappedText(text, x, y, maxWidth, lh){
+  const words=text.split(' ');
+  let line='';
+  for(const w of words){
+    const test=line? line+' '+w : w;
+    if(ctx.measureText(test).width > maxWidth){
+      ctx.fillText(line, x, y);
+      line=w; y+=lh;
+    }else{
+      line=test;
+    }
+  }
+  if(line){ ctx.fillText(line, x, y); }
+  return y;
+}
+
+/* ---------------- Start clean ---------------- */
+resetAccumulators();
+
+/* ---------------- UX: keep orientation and entry rows sane ---------------- */
+orientEl.addEventListener('change', ()=>{ /* nothing required; used on add */ });
+
+</script>
+</body>
+</html>
