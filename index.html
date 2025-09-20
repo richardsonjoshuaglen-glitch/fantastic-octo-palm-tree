@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Rigging CG Helper — Readable</title>
+<title>Rigging CG Helper — Readable v4 (Color Quick Output)</title>
 <style>
   :root{
     --bg:#ffffff; --ink:#111; --panel:#f8f9fa; --border:#e9ecef; --accent:#0d6efd;
@@ -23,14 +23,20 @@
   .items { margin-top: 6px; }
   .item { padding: 8px; border: 1px dashed #999; border-radius: 8px; margin-bottom: 8px; font-size: 14px; }
   .hint { color: #555; font-size: 13px; }
-  /* Make canvas crisp + readable on phones by sizing via CSS and letting JS set actual pixel size */
   #sheet { width: 100%; max-width: 1000px; background: #fff; border: 1px solid #ddd; border-radius: 8px; display:block; }
-  .out { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--panel); padding: 12px; border-radius: 10px; border: 1px solid var(--border); line-height: 1.35; font-size: 15px; }
-  .small { font-size:12px; color:#666; }
+  .out { background: var(--panel); padding: 12px; border-radius: 10px; border: 1px solid var(--border); line-height: 1.5; font-size: 15px; }
+  .out h3 { margin: 6px 0; font-size: 16px; }
+  .out ul { margin: 6px 0 10px 20px; padding: 0; }
+  .out li { margin: 4px 0; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-weight:600; font-size:12px; color:#000; vertical-align:baseline; }
+  .pill.left { background: var(--pickL); }
+  .pill.right{ background: var(--pickR); }
+  .pill.roll { background: var(--roll); }
+  .muted { color:#444; font-size: 13px; }
 </style>
 </head>
 <body>
-<h1>Rigging CG Helper — Readable</h1>
+<h1>Rigging CG Helper — Readable v4</h1>
 
 <fieldset>
   <legend>Pick setup</legend>
@@ -131,565 +137,310 @@
 <fieldset>
   <legend>Output (quick)</legend>
   <div id="summary" class="out"></div>
+  <div class="muted">Legend: <span class="pill left">Left pick</span> <span class="pill right">Right pick</span> <span class="pill roll">Roll</span></div>
 </fieldset>
 
 <fieldset>
   <legend>Drawings</legend>
-  <!-- We'll set the true pixel size via JS for HiDPI crispness -->
   <canvas id="sheet"></canvas>
-  <div class="small">Sheet shows: Plan (X–Y), Elevation (X–Z), and formatted rigging directions.</div>
+  <div class="muted">Sheet shows: Plan (X–Y) and Elevation (X–Z).</div>
 </fieldset>
 
 <script>
-/* --------- HiDPI / Responsive canvas --------- */
-function setupCanvas(canvas, cssW = 1000, cssH = 1700) {
+/* HiDPI */
+function setupCanvas(canvas, cssW = 1000, cssH = 1200) {
   const dpr = window.devicePixelRatio || 1;
   canvas.style.width = cssW + 'px';
   canvas.style.height = cssH + 'px';
   canvas.width  = Math.floor(cssW * dpr);
   canvas.height = Math.floor(cssH * dpr);
   const ctx = canvas.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // 1 unit = 1 CSS pixel
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.textBaseline = 'top';
   return ctx;
 }
 
-/* --------- Constants (match your Python) --------- */
+/* Constants */
 const PIPE_DIAM_IN = 24.0;
 const PIPE_R_IN = PIPE_DIAM_IN / 2.0;
 const W_PER_IN_DEFAULT = 8.2;
-
 const W_EL90=475.0, S_EL90=36.0, R_EL90=(2*S_EL90)/Math.PI;
 const W_EL45=240.0, S_EL45=15.0;
-
 const W_COUP=115.0;
-
 const W_VALVE_BODY=451.0, L_VALVE_STD=12.0;
 const W_VALVE_INLINE=631.0, L_VALVE_INLINE=12.0;
-
 const W_TEE_BODY=477.0, L_TEE=20.0;
-
 const DEFAULT_PICK_SPACING=72.0;
 const DEFAULT_BASKET_SPREAD=12.0;
 
-/* --------- Colors --------- */
+/* Colors */
 const COLORS = {
-  axisX: '#d12222',  // red
-  axisY: '#2a9d2a',  // green
-  axisZ: '#1f6feb',  // blue
-  P: '#666666', // pipe (gray)
-  E: '#2aa198', // 90 elbow (teal)
-  F: '#2aa198', // 45 elbow (teal)
-  V: '#ff9100', // valve regular (orange)
-  I: '#ff9100', // valve inline (orange)
-  C: '#8e44ad', // coupling (purple)
-  T: '#d33682', // tee (magenta)
-  W: '#d33682', // tee with valve
-  G: '#2aa198', // single 90 with valve
-  X: '#8d6e63', // custom per-inch (brown)
-  Y: '#8d6e63', // custom fixed
+  axisX:'#d12222', axisY:'#2a9d2a', axisZ:'#1f6feb',
+  P:'#666666', E:'#2aa198', F:'#2aa198',
+  V:'#ff9100', I:'#ff9100', C:'#8e44ad',
+  T:'#d33682', W:'#d33682', G:'#2aa198',
+  X:'#8d6e63', Y:'#8d6e63',
   pickLeft: getComputedStyle(document.documentElement).getPropertyValue('--pickL') || '#ffd60a',
-  pickRight: getComputedStyle(document.documentElement).getPropertyValue('--pickR') || '#32cd32',
-  pipeBand: 'rgba(100,100,100,0.18)',
-  centerline: '#000000'
+  pickRight:getComputedStyle(document.documentElement).getPropertyValue('--pickR') || '#32cd32',
+  pipeBand:'rgba(100,100,100,0.18)',
+  centerline:'#000'
 };
 
-/* --------- Helpers --------- */
-const ORIENTS = {
-  A: [ 1, 0, 0], B: [-1, 0, 0],
-  C: [ 0, 1, 0], D: [ 0,-1, 0],
-  E: [ 0, 0, 1], F: [ 0, 0,-1],
-};
-function roundToQuarter(x){ return Math.round(x*4)/4; }
+/* Helpers */
+const ORIENTS={A:[1,0,0],B:[-1,0,0],C:[0,1,0],D:[0,-1,0],E:[0,0,1],F:[0,0,-1]};
+function r4(x){return Math.round(x*4)/4;}
 function fmtFtIn(x){
-  const v=roundToQuarter(x);
-  const ft=Math.floor(v/12);
-  let rem=v-ft*12; if(Math.abs(rem-12)<1e-9){ rem=0; }
+  const v=r4(x); const ft=Math.floor(v/12); let rem=v-ft*12;
   const whole=Math.floor(rem); const frac=Math.round((rem-whole)*100)/100;
   const map={0.00:"",0.25:"-1/4",0.50:"-1/2",0.75:"-3/4"};
-  const tag=map.hasOwnProperty(frac)?map[frac]:null;
-  const inch = tag!==null? `${whole}${tag}"` : `${rem.toFixed(2)}"`;
+  const tag=(map.hasOwnProperty(frac)?map[frac]:null);
+  const inch=tag!==null? `${whole}${tag}"` : `${rem.toFixed(2)}"`;
   return ft? `${ft}' ${inch}` : inch;
 }
-function roundToEighth(x){ return Math.round(x*8)/8; }
+function r8(x){return Math.round(x*8)/8;}
 function fmtEighthIn(x){
-  const v=roundToEighth(x);
-  const whole=Math.floor(v);
-  const frac=v-whole;
+  const v=r8(x), whole=Math.floor(v), frac=v-whole;
   const fr={0.0:"",0.125:" 1/8",0.25:" 1/4",0.375:" 3/8",0.5:" 1/2",0.625:" 5/8",0.75:" 3/4",0.875:" 7/8"};
-  if(fr.hasOwnProperty(frac)){
-    if(whole) return `${whole}${fr[frac]}"`;
-    return fr[frac]? `${fr[frac].trim()}"` : `0"`;
-  }
+  if(fr.hasOwnProperty(frac)){ if(whole) return `${whole}${fr[frac]}"`; return fr[frac]? `${fr[frac].trim()}"` : `0"`; }
   return `${v.toFixed(3)}"`;
 }
-function rollAngleDegForY(y_cg, R=PIPE_R_IN){
-  const y=Math.max(-R, Math.min(R, y_cg));
-  return R>0? (Math.asin(y/R)*180/Math.PI) : 0;
-}
+function rollAngleDegForY(y_cg,R=PIPE_R_IN){const y=Math.max(-R,Math.min(R,y_cg));return R>0?(Math.asin(y/R)*180/Math.PI):0;}
 
-/* --------- State --------- */
-let items = [];      // [{name, length, weight, xcg_local, tCode}]
-let segments = [];   // [{tCode, start:[x,y,z], end:[x,y,z]}]
-let marks = [];      // [idx,x,y,z]
+/* State */
+let items=[],segments=[],marks=[];
 
-/* --------- UI wiring --------- */
-const el = id=>document.getElementById(id);
-const pickModeEl = el('pickMode');
-const pickSpacingEl = el('pickSpacing');
-const basketRow = el('basketRow');
-const basketSpreadEl = el('basketSpread');
-const rollThreshEl = el('rollThresh');
-const itemTypeEl = el('itemType');
-const orientEl = el('orient');
-const lenRow = el('lenRow');
-const wpiEl = el('wpi');
-const wpiLabel = el('wpiLabel');
-const lenInEl = el('lenIn');
-const fixedRow = el('fixedRow');
-const fixedWEl = el('fixedW');
-const fixedLEl = el('fixedL');
-const single90Row = el('single90Row');
-const s90_beforeEl = el('s90_before');
-const s90_afterEl = el('s90_after');
-const s90_vtypeEl = el('s90_vtype');
-const itemsDiv = el('items');
-const summaryDiv = el('summary');
-const sheet = el('sheet');
-let ctx = setupCanvas(sheet, 1000, 1700); // initial setup
+/* UI */
+const el=id=>document.getElementById(id);
+const pickModeEl=el('pickMode'), pickSpacingEl=el('pickSpacing');
+const basketRow=el('basketRow'), basketSpreadEl=el('basketSpread'), rollThreshEl=el('rollThresh');
+const itemTypeEl=el('itemType'), orientEl=el('orient'), lenRow=el('lenRow'), wpiEl=el('wpi'), wpiLabel=el('wpiLabel');
+const lenInEl=el('lenIn'), fixedRow=el('fixedRow'), fixedWEl=el('fixedW'), fixedLEl=el('fixedL');
+const single90Row=el('single90Row'), s90_beforeEl=el('s90_before'), s90_afterEl=el('s90_after'), s90_vtypeEl=el('s90_vtype');
+const itemsDiv=el('items'), summaryDiv=el('summary'), sheet=el('sheet');
+let ctx=setupCanvas(sheet);
 
-pickModeEl.addEventListener('change', ()=>{
-  basketRow.style.display = pickModeEl.value==='4' ? 'grid' : 'none';
-});
-itemTypeEl.addEventListener('change', updateDetailRows);
+pickModeEl.addEventListener('change',()=>{basketRow.style.display=pickModeEl.value==='4'?'grid':'none';});
+itemTypeEl.addEventListener('change',updateDetailRows);
 function updateDetailRows(){
   const t=itemTypeEl.value;
   lenRow.style.display='none'; fixedRow.style.display='none'; single90Row.style.display='none';
   if(t==='P'||t==='X'){ lenRow.style.display='grid'; wpiLabel.style.display='block'; }
   if(t==='Y'){ fixedRow.style.display='grid'; }
   if(t==='G'){ single90Row.style.display='grid'; }
-  if(t!=='X') wpiEl.value=W_PER_IN_DEFAULT;
+  if(t!=='X') wpiEl.value=8.2;
 }
 updateDetailRows();
 
-function addItemSummary(text){
-  const div=document.createElement('div'); div.className='item'; div.textContent=text;
-  itemsDiv.appendChild(div);
-}
-function resetAll(){
-  items=[]; segments=[]; marks=[]; itemsDiv.innerHTML=''; summaryDiv.textContent=''; ctx.clearRect(0,0,sheet.width,sheet.height);
-}
-el('clearBtn').addEventListener('click', (e)=>{ e.preventDefault(); resetAll(); });
+function addItemSummary(text){const d=document.createElement('div');d.className='item';d.textContent=text;itemsDiv.appendChild(d);}
+function resetAll(){items=[];segments=[];marks=[];itemsDiv.innerHTML='';summaryDiv.innerHTML='';ctx.clearRect(0,0,sheet.width,sheet.height);}
+document.getElementById('clearBtn').addEventListener('click',(e)=>{e.preventDefault();resetAll();});
 
-/* --------- Geometry helpers --------- */
-function getCurrentEnd(){
-  if(segments.length===0) return [0,0,0];
-  const s=segments[segments.length-1];
-  return s.end.slice();
-}
-function pushSegment(tCode, dir, L, labelIdx){
-  const start = getCurrentEnd();
-  const end = [ start[0]+dir[0]*L, start[1]+dir[1]*L, start[2]+dir[2]*L ];
-  segments.push({tCode, start, end});
-  const mid=[ (start[0]+end[0])/2, (start[1]+end[1])/2, (start[2]+end[2])/2 ];
-  marks.push([labelIdx, mid[0], mid[1], mid[2]]);
+/* Geometry helpers */
+function getCurrentEnd(){return segments.length===0?[0,0,0]:segments[segments.length-1].end.slice();}
+function pushSegment(tCode,dir,L,labelIdx){
+  const start=getCurrentEnd(); const end=[start[0]+dir[0]*L,start[1]+dir[1]*L,start[2]+dir[2]*L];
+  segments.push({tCode,start,end}); const mid=[(start[0]+end[0])/2,(start[1]+end[1])/2,(start[2]+end[2])/2];
+  marks.push([labelIdx,mid[0],mid[1],mid[2]]);
 }
 
-/* --------- Add items --------- */
+/* Add items */
 function addItem(){
-  const t=itemTypeEl.value;
-  const idx = items.length+1;
-  const [dx,dy,dz] = ORIENTS[orientEl.value] || [1,0,0];
-
-  function placeLinear(name, L, W, xcgLocal, tCode){
-    L=Math.max(0, +L);
-    const Lx=L*Math.abs(dx);
-    if(xcgLocal==null) xcgLocal=L/2;
-    items.push({name, length:Lx, weight:W, xcg_local:(Math.abs(dx)>0? xcgLocal:0), tCode});
-    pushSegment(tCode, [dx,dy,dz], L, idx);
+  const t=itemTypeEl.value; const idx=items.length+1; const [dx,dy,dz]=ORIENTS[orientEl.value]||[1,0,0];
+  function placeLinear(name,L,W,xcgLocal,tCode){
+    L=Math.max(0,+L); const Lx=L*Math.abs(dx); if(xcgLocal==null) xcgLocal=L/2;
+    items.push({name,length:Lx,weight:W,xcg_local:(Math.abs(dx)>0?xcgLocal:0),tCode});
+    pushSegment(tCode,[dx,dy,dz],L,idx);
   }
-
-  if(t==='P'){
-    const L=+lenInEl.value||0, wpi=+wpiEl.value||W_PER_IN_DEFAULT;
-    const W=wpi*L;
-    placeLinear('24\" pipe (per-inch)', L, W, null, 'P');
-    addItemSummary(`${idx}. Pipe ${L.toFixed(1)} in @ ${wpi} lb/in  → ${W.toFixed(1)} lb`);
-
-  }else if(t==='X'){
-    const L=+lenInEl.value||0, wpi=+wpiEl.value||W_PER_IN_DEFAULT;
-    const W=wpi*L;
-    placeLinear('Custom per-inch', L, W, null, 'X');
-    addItemSummary(`${idx}. Custom per-inch ${L.toFixed(1)} in @ ${wpi} → ${W.toFixed(1)} lb`);
-
-  }else if(t==='Y'){
-    const W=+fixedWEl.value||0, L=+fixedLEl.value||0;
-    placeLinear('Custom fixed', L, W, null, 'Y');
-    addItemSummary(`${idx}. Custom fixed ${W.toFixed(1)} lb, eff L=${L.toFixed(1)} in`);
-
-  }else if(t==='V'){
-    const L=L_VALVE_STD, W=W_VALVE_BODY + W_COUP;
-    const xcgLocal=(W_VALVE_BODY*(L/2) + W_COUP*0)/W;
-    placeLinear('24\" valve (regular)', L, W, xcgLocal, 'V');
-    addItemSummary(`${idx}. Valve (regular) L=${L} in, W=${W.toFixed(1)} lb`);
-
-  }else if(t==='I'){
-    const L=L_VALVE_INLINE, W=W_VALVE_INLINE;
-    placeLinear('24\" valve (inline)', L, W, L/2, 'I');
-    addItemSummary(`${idx}. Valve (inline) L=${L} in, W=${W.toFixed(1)} lb`);
-
-  }else if(t==='C'){
-    items.push({name:'24\" coupling', length:0, weight:W_COUP, xcg_local:0, tCode:'C'});
-    pushSegment('C', [dx,dy,dz], 1, idx); // 1 in visual stub
-    addItemSummary(`${idx}. Coupling W=${W_COUP.toFixed(1)} lb`);
-
-  }else if(t==='E'){
-    const L=S_EL90, W=W_EL90+W_COUP;
-    const xcgLocal=(W_EL90*(L/2)+W_COUP*0)/W;
-    placeLinear('24\" 90° elbow', L, W, xcgLocal, 'E');
-    addItemSummary(`${idx}. 90° elbow L=${L} in, W=${W.toFixed(1)} lb`);
-
-  }else if(t==='F'){
-    const L=S_EL45, W=W_EL45+W_COUP;
-    const xcgLocal=(W_EL45*(L/2)+W_COUP*0)/W;
-    placeLinear('24\" 45° elbow', L, W, xcgLocal, 'F');
-    addItemSummary(`${idx}. 45° elbow L=${L} in, W=${W.toFixed(1)} lb`);
-
-  }else if(t==='T'){
-    const L=L_TEE, W=W_TEE_BODY+W_COUP;
-    const xcgLocal=(W_TEE_BODY*(L/2)+W_COUP*0)/W;
-    placeLinear('24\" tee (plain)', L, W, xcgLocal, 'T');
-    addItemSummary(`${idx}. Tee (plain) L=${L} in, W=${W.toFixed(1)} lb`);
-
-  }else if(t==='W'){
-    const L=L_TEE;
-    const parts=[
-      [W_TEE_BODY, L/2, 0],
-      [W_VALVE_BODY, L/2, L_VALVE_STD/2],
-      [W_COUP, 0, 0],
-      [W_COUP, L/2, 0],
-    ];
-    const W = parts.reduce((a,p)=>a+p[0],0);
-    const xcgLocal = parts.reduce((a,p)=>a+p[0]*p[1],0)/W;
-    placeLinear('24\" tee with valve', L, W, xcgLocal, 'W');
-    addItemSummary(`${idx}. Tee w/ valve L=${L} in, W=${W.toFixed(1)} lb`);
-
-  }else if(t==='G'){
-    const Ls=+s90_beforeEl.value||0, La=+s90_afterEl.value||0;
-    const inline = (s90_vtypeEl.value==='I');
-    const R=R_EL90;
-    const W1=W_PER_IN_DEFAULT*Ls;
-    const W2=W_EL90;
-    let Wv=inline? W_VALVE_INLINE : W_VALVE_BODY+W_COUP;
-    const Wafter=W_PER_IN_DEFAULT*La;
-    const Wt=W1+W2+Wv+Wafter;
-    const x_span=Math.max(Ls, Ls+R, Ls+R);
-    placeLinear('Single 90 with valve', x_span, Wt, Math.min(x_span/2, Ls+R/2), 'G');
-    addItemSummary(`${idx}. Single 90 + valve (Ls=${Ls} in, La=${La} in, ${inline?'inline':'std'}) → W=${Wt.toFixed(1)} lb`);
-  }
+  if(t==='P'){const L=+lenInEl.value||0,wpi=+wpiEl.value||W_PER_IN_DEFAULT;const W=wpi*L;placeLinear('24\" pipe (per-inch)',L,W,null,'P');addItemSummary(`${idx}. Pipe ${L.toFixed(1)} in @ ${wpi} lb/in → ${W.toFixed(1)} lb`);}
+  else if(t==='X'){const L=+lenInEl.value||0,wpi=+wpiEl.value||W_PER_IN_DEFAULT;const W=wpi*L;placeLinear('Custom per-inch',L,W,null,'X');addItemSummary(`${idx}. Custom per-inch ${L.toFixed(1)} in @ ${wpi} → ${W.toFixed(1)} lb`);}
+  else if(t==='Y'){const W=+fixedWEl.value||0,L=+fixedLEl.value||0;placeLinear('Custom fixed',L,W,null,'Y');addItemSummary(`${idx}. Custom fixed ${W.toFixed(1)} lb, eff L=${L.toFixed(1)} in`);}
+  else if(t==='V'){const L=L_VALVE_STD,W=W_VALVE_BODY+W_COUP;const x=(W_VALVE_BODY*(L/2))/W;placeLinear('24\" valve (regular)',L,W,x,'V');addItemSummary(`${idx}. Valve (regular) L=${L} in, W=${W.toFixed(1)} lb`);}
+  else if(t==='I'){const L=L_VALVE_INLINE,W=W_VALVE_INLINE;placeLinear('24\" valve (inline)',L,W,L/2,'I');addItemSummary(`${idx}. Valve (inline) L=${L} in, W=${W.toFixed(1)} lb`);}
+  else if(t==='C'){items.push({name:'24\" coupling',length:0,weight:W_COUP,xcg_local:0,tCode:'C'});pushSegment('C',[dx,dy,dz],1,idx);addItemSummary(`${idx}. Coupling W=${W_COUP.toFixed(1)} lb`);}
+  else if(t==='E'){const L=S_EL90,W=W_EL90+W_COUP;const x=(W_EL90*(L/2))/W;placeLinear('24\" 90° elbow',L,W,x,'E');addItemSummary(`${idx}. 90° elbow L=${L} in, W=${W.toFixed(1)} lb`);}
+  else if(t==='F'){const L=S_EL45,W=W_EL45+W_COUP;const x=(W_EL45*(L/2))/W;placeLinear('24\" 45° elbow',L,W,x,'F');addItemSummary(`${idx}. 45° elbow L=${L} in, W=${W.toFixed(1)} lb`);}
+  else if(t==='T'){const L=L_TEE,W=W_TEE_BODY+W_COUP;const x=(W_TEE_BODY*(L/2))/W;placeLinear('24\" tee (plain)',L,W,x,'T');addItemSummary(`${idx}. Tee (plain) L=${L} in, W=${W.toFixed(1)} lb`);}
+  else if(t==='W'){const L=L_TEE;const parts=[[W_TEE_BODY,L/2,0],[W_VALVE_BODY,L/2,L_VALVE_STD/2],[W_COUP,0,0],[W_COUP,L/2,0]];const W=parts.reduce((a,p)=>a+p[0],0);const x=parts.reduce((a,p)=>a+p[0]*p[1],0)/W;placeLinear('24\" tee with valve',L,W,x,'W');addItemSummary(`${idx}. Tee w/ valve L=${L} in, W=${W.toFixed(1)} lb`);}
+  else if(t==='G'){const Ls=+s90_beforeEl.value||0,La=+s90_afterEl.value||0;const inline=(s90_vtypeEl.value==='I');const R=R_EL90;const W1=W_PER_IN_DEFAULT*Ls;const W2=W_EL90;let Wv=inline?W_VALVE_INLINE:W_VALVE_BODY+W_COUP;const Wafter=W_PER_IN_DEFAULT*La;const Wt=W1+W2+Wv+Wafter;const x_span=Math.max(Ls,Ls+R,Ls+R);placeLinear('Single 90 with valve',x_span,Wt,Math.min(x_span/2,Ls+R/2),'G');addItemSummary(`${idx}. Single 90 + valve (Ls=${Ls} in, La=${La} in, ${inline?'inline':'std'}) → W=${Wt.toFixed(1)} lb`);}
 }
-el('addBtn').addEventListener('click', (e)=>{ e.preventDefault(); addItem(); });
+document.getElementById('addBtn').addEventListener('click',(e)=>{e.preventDefault();addItem();});
 
-/* --------- Compute + draw --------- */
-el('computeBtn').addEventListener('click', ()=>{
+/* Compute + draw */
+document.getElementById('computeBtn').addEventListener('click',()=>{
   if(items.length===0){ alert('Add at least one item.'); return; }
 
-  const pickMode = pickModeEl.value;
-  const pickSpacing = Math.max(0, +pickSpacingEl.value || DEFAULT_PICK_SPACING);
-  const basketSpread = pickMode==='4' ? Math.max(0, +basketSpreadEl.value||DEFAULT_BASKET_SPREAD) : 0;
-  const rollThresh = rollThreshEl.value==='' ? null : Math.max(0, +rollThreshEl.value);
+  const pickMode=pickModeEl.value;
+  const pickSpacing=Math.max(0,+pickSpacingEl.value||DEFAULT_PICK_SPACING);
+  const basketSpread=pickMode==='4'?Math.max(0,+basketSpreadEl.value||DEFAULT_BASKET_SPREAD):0;
+  const rollThresh=rollThreshEl.value===''?null:Math.max(0,+rollThreshEl.value);
 
-  // Totals + CG
-  const totalLength = items.reduce((a,it)=>a+it.length,0);
-  const totalWeight = items.reduce((a,it)=>a+it.weight,0);
+  const totalLength=items.reduce((a,it)=>a+it.length,0);
+  const totalWeight=items.reduce((a,it)=>a+it.weight,0);
   let pos=0, tm=0;
-  for(const it of items){
-    const c = pos + (it.xcg_local ?? it.length/2);
-    tm += it.weight*c;
-    pos += it.length;
-  }
-  const cg_x = totalWeight>0 ? tm/totalWeight : 0;
+  for(const it of items){const c=pos+(it.xcg_local??it.length/2);tm+=it.weight*c;pos+=it.length;}
+  const cg_x=totalWeight>0?tm/totalWeight:0;
 
-  let tw=0, yMom=0, zMom=0;
-  for(let i=0;i<items.length;i++){
-    const it=items[i];
-    const m=marks[i] || [0,0,0,0];
-    yMom += it.weight * m[2];
-    zMom += it.weight * m[3];
-    tw += it.weight;
-  }
-  const cg_y = tw>0 ? yMom/tw : 0;
-  const cg_z = tw>0 ? zMom/tw : 0;
+  let tw=0,yMom=0,zMom=0;
+  for(let i=0;i<items.length;i++){const it=items[i];const m=marks[i]||[0,0,0,0];yMom+=it.weight*m[2];zMom+=it.weight*m[3];tw+=it.weight;}
+  const cg_y=tw>0?yMom/tw:0, cg_z=tw>0?zMom/tw:0;
 
-  // Picks centered on CG.x
-  let leftCenter = Math.max(0, cg_x - pickSpacing/2);
-  let rightCenter = leftCenter + pickSpacing;
-  if(rightCenter>totalLength){ rightCenter=totalLength; leftCenter=Math.max(0, rightCenter-pickSpacing); }
+  let leftCenter=Math.max(0,cg_x-pickSpacing/2);
+  let rightCenter=leftCenter+pickSpacing;
+  if(rightCenter>totalLength){ rightCenter=totalLength; leftCenter=Math.max(0,rightCenter-pickSpacing); }
 
   let picksForImage, picksInfo;
+  if(pickMode==='2'){picksForImage=[leftCenter,rightCenter];picksInfo={mode:'2',picks:picksForImage};}
+  else{const s=basketSpread;const L1=Math.max(0,leftCenter-s/2),L2=Math.min(totalLength,leftCenter+s/2);const R1=Math.max(0,rightCenter-s/2),R2=Math.min(totalLength,rightCenter+s/2);picksForImage=[L1,L2,R1,R2];picksInfo={mode:'4',picks:picksForImage,basket_spread:s};}
+
+  const roll_deg=rollAngleDegForY(cg_y,PIPE_R_IN);
+  const roll_side=cg_y>0?'toward +Y':(cg_y<0?'toward -Y':'no roll needed');
+  const arc_in=PIPE_R_IN*(Math.abs(roll_deg)*Math.PI/180);
+  const arc_in_str=fmtEighthIn(arc_in);
+
+  // ---- COLORFUL QUICK OUTPUT (HTML) ----
+  let html = '';
+  html += `<h3>Rigging Summary</h3>`;
+  html += `<ul>`;
+  html += `<li>Total weight: <b>${totalWeight.toFixed(1)} lb</b></li>`;
+  html += `<li>Span X: <b>${totalLength.toFixed(2)} in</b> (${fmtFtIn(totalLength)})</li>`;
+  html += `<li>CG: X=<b>${cg_x.toFixed(2)} in</b> (${fmtFtIn(cg_x)}), Y=${cg_y.toFixed(2)} in, Z=${cg_z.toFixed(2)} in</li>`;
+  html += `</ul>`;
+
+  html += `<h3>Pick Points (from Left Edge)</h3><ul>`;
   if(pickMode==='2'){
-    picksForImage=[leftCenter, rightCenter];
-    picksInfo={mode:'2', picks:picksForImage};
-  }else{
-    const s=basketSpread;
-    const L1=Math.max(0, leftCenter - s/2), L2=Math.min(totalLength, leftCenter + s/2);
-    const R1=Math.max(0, rightCenter - s/2), R2=Math.min(totalLength, rightCenter + s/2);
-    picksForImage=[L1,L2,R1,R2];
-    picksInfo={mode:'4', picks:picksForImage, basket_spread:s};
-  }
-
-  const roll_deg = rollAngleDegForY(cg_y, PIPE_R_IN);
-  const roll_side = cg_y>0? 'toward +Y' : (cg_y<0? 'toward -Y' : 'no roll needed');
-  const arc_in = PIPE_R_IN * (Math.abs(roll_deg)*Math.PI/180);
-  const arc_in_str = fmtEighthIn(arc_in);
-
-  // Directions content
-  const lines=[];
-  lines.push({type:'header', text:'Rigging Summary'});
-  lines.push({type:'bullet', text:`Total weight: ${totalWeight.toFixed(1)} lb`});
-  lines.push({type:'bullet', text:`Span X: ${totalLength.toFixed(2)} in (${fmtFtIn(totalLength)})`});
-  lines.push({type:'bullet', text:`CG: X=${cg_x.toFixed(2)} in (${fmtFtIn(cg_x)}),  Y=${cg_y.toFixed(2)} in,  Z=${cg_z.toFixed(2)} in`});
-
-  lines.push({type:'spacer'});
-  lines.push({type:'header', text:'Pick Points'});
-  if(pickMode==='2'){
-    lines.push({type:'bullet', text:`Left pick:  ${fmtFtIn(picksForImage[0])}  (yellow)`});
-    lines.push({type:'bullet', text:`Right pick: ${fmtFtIn(picksForImage[1])}  (lime green)`});
-    lines.push({type:'bullet', text:`Spacing:    ${fmtFtIn(pickSpacing)}`});
+    html += `<li><span class="pill left">Left</span> ${fmtFtIn(picksForImage[0])} from Left Edge</li>`;
+    html += `<li><span class="pill right">Right</span> ${fmtFtIn(picksForImage[1])} from Left Edge</li>`;
+    html += `<li>Pick spacing ${fmtFtIn(pickSpacing)}</li>`;
   }else{
     const [L1,L2,R1,R2]=picksForImage;
-    lines.push({type:'bullet', text:`Left basket contacts:  L-=${fmtFtIn(L1)},  L+=${fmtFtIn(L2)}  (spread ${fmtFtIn(basketSpread)})`});
-    lines.push({type:'bullet', text:`Right basket contacts: R-=${fmtFtIn(R1)},  R+=${fmtFtIn(R2)}`});
+    html += `<li><span class="pill left">Left basket</span> contacts at ${fmtFtIn(L1)} and ${fmtFtIn(L2)}</li>`;
+    html += `<li><span class="pill right">Right basket</span> contacts at ${fmtFtIn(R1)} and ${fmtFtIn(R2)}</li>`;
   }
+  html += `</ul>`;
 
-  lines.push({type:'spacer'});
-  lines.push({type:'header', text:'Roll Adjustment'});
-  lines.push({type:'bullet', text:`Roll chokers: ~${roll_deg.toFixed(1)}° ${roll_side}`, highlight:'roll'});
-  lines.push({type:'bullet', text:`Circumference offset per choker: ${arc_in_str}`, highlight:'roll'});
-  if(rollThresh!==null) lines.push({type:'bullet', text:`No-roll torque threshold (ft-lb): ${rollThresh.toFixed(0)} (visual check)`});
+  html += `<h3>Roll</h3><ul>`;
+  html += `<li><span class="pill roll">Roll</span> chokers: ~${roll_deg.toFixed(1)}° ${roll_side}</li>`;
+  html += `<li><span class="pill roll">Roll</span> circumference offset per choker: ${arc_in_str}</li>`;
+  if(rollThresh!==null) html += `<li>No-roll torque threshold (ft-lb): ${rollThresh.toFixed(0)} (visual check)</li>`;
+  html += `</ul>`;
 
-  lines.push({type:'spacer'});
-  lines.push({type:'header', text:'Notes'});
-  lines.push({type:'bullet', text:`Couplings are weight-only at LEFT/start faces unless noted.`});
-  lines.push({type:'bullet', text:`Inline valves are balanced (couplings at both ends).`});
+  summaryDiv.innerHTML = html;
 
-  drawSheet(picksInfo, lines);
+  // ---- DRAW CANVAS (no directions pane) ----
+  drawSheet(picksInfo);
 
-  // quick summary block
-  let s="--- Summary ---\\n";
-  items.forEach((it,i)=>{ s += `${(i+1).toString().padStart(2,' ')}. ${it.name} | length=${it.length.toFixed(2)} in | weight=${it.weight.toFixed(1)} lb\\n`; });
-  s += `\\nSpan X: ${totalLength.toFixed(2)} in (${fmtFtIn(totalLength)})\\n`;
-  s += `Total weight: ${totalWeight.toFixed(1)} lb\\n`;
-  s += `CG: X=${cg_x.toFixed(2)} in (${fmtFtIn(cg_x)}), Y=${cg_y.toFixed(2)} in, Z=${cg_z.toFixed(2)} in\\n`;
-  if(pickMode==='2'){ s += `Picks: L=${fmtFtIn(picksForImage[0])}, R=${fmtFtIn(picksForImage[1])}\\n`; }
-  else{
-    const [L1,L2,R1,R2]=picksForImage;
-    s += `Contacts: L-=${fmtFtIn(L1)}, L+=${fmtFtIn(L2)}, R-=${fmtFtIn(R1)}, R+=${fmtFtIn(R2)}\\n`;
-  }
-  s += `Roll ~ ${roll_deg.toFixed(1)}° ${roll_side}\\n`;
-  s += `Roll arc along circumference per choker ~ ${arc_in_str}\\n`;
-  summaryDiv.textContent = s;
+  // enable download
+  document.getElementById('downloadBtn').disabled=false;
 });
 
-el('downloadBtn').addEventListener('click', ()=>{
+document.getElementById('downloadBtn').addEventListener('click',()=>{
   const a=document.createElement('a');
-  const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
-  a.download = `${ts}_rigging.png`;
-  a.href = sheet.toDataURL('image/png');
+  const ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  a.download=`${ts}_rigging.png`;
+  a.href=sheet.toDataURL('image/png');
   a.click();
 });
 
-/* --------- Drawing --------- */
-function drawSheet(picksInfo, lines){
-  // Re-init canvas each draw for crispness
-  ctx = setupCanvas(sheet, 1000, 1700);
+/* Drawing (Plan + Elevation only) */
+function drawSheet(picksInfo){
+  ctx=setupCanvas(sheet, 1000, 1200);
+  const W=1000,H=1200,pad=28;
+  const secH=Math.floor((H-pad*4)/2);
+  const planRect={x:pad,y:pad,w=W-2*pad,h:secH};
+  const elevRect={x:pad,y:pad*2+secH,w=W-2*pad,h:secH};
 
-  const W=1000, H=1700;
-  const pad=28;
-
-  // Make more space for the text panel: 30% plan, 30% elev, 40% text
-  const planH = Math.floor((H - pad*5) * 0.30);
-  const elevH = Math.floor((H - pad*5) * 0.30);
-  const textH = (H - pad*5) - planH - elevH;
-
-  const planRect = {x:pad, y:pad, w:W-2*pad, h:planH};
-  const elevRect = {x:pad, y:pad*2+planH, w:W-2*pad, h:elevH};
-  const textRect = {x:pad, y:pad*3+planH+elevH, w:W-2*pad, h:textH+pad};
-
-  // clear
   ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
 
-  // Build vertices from segments
   const verts=[[0,0,0]];
-  for(const s of segments){ verts.push(s.end.slice()); }
+  for(const s of segments){verts.push(s.end.slice());}
   const px=verts.map(v=>v[0]), py=verts.map(v=>v[1]), pz=verts.map(v=>v[2]);
 
-  drawProjection(planRect, px, py, 'Plan (X–Y)', picksInfo, 'XY');
-  drawProjection(elevRect, px, pz, 'Elevation (X–Z)', picksInfo, 'XZ');
-
-  drawTextPanel(lines, textRect);
+  drawProjection(planRect,px,py,'Plan (X–Y)',picksInfo,'XY');
+  drawProjection(elevRect,px,pz,'Elevation (X–Z)',picksInfo,'XZ');
 }
 
-function drawProjection(rect, px, py, title, picksInfo, plane){
-  // bounds
-  const minX=Math.min(...px, 0), maxX=Math.max(...px, 1);
-  const minY=Math.min(...py, -1), maxY=Math.max(...py, 1);
+function drawProjection(rect,px,py,title,picksInfo,plane){
+  const minX=Math.min(...px,0), maxX=Math.max(...px,1);
+  const minY=Math.min(...py,-1), maxY=Math.max(...py,1);
 
   const pad=46;
-  const sx = (rect.w - pad*2) / ((maxX-minX) || 1);
-  const sy = (rect.h - pad*2) / ((maxY-minY) || 1);
-  const s = Math.min(sx, sy);
-  const mapX = x=> rect.x + pad + (x-minX)*s;
-  const mapY = y=> rect.y + rect.h - pad - (y-minY)*s;
+  const sx=(rect.w-pad*2)/((maxX-minX)||1);
+  const sy=(rect.h-pad*2)/((maxY-minY)||1);
+  const s=Math.min(sx,sy);
+  const mapX=x=>rect.x+pad+(x-minX)*s;
+  const mapY=y=>rect.y+rect.h-pad-(y-minY)*s;
 
-  // Title
   ctx.fillStyle='#000'; ctx.font='20px system-ui';
   ctx.fillText(title, rect.x, rect.y-6);
 
-  // Axes
   ctx.lineWidth=2;
   ctx.strokeStyle=COLORS.axisX; // X at Y=0
   ctx.beginPath(); ctx.moveTo(mapX(minX), mapY(0)); ctx.lineTo(mapX(maxX), mapY(0)); ctx.stroke();
-  ctx.strokeStyle = (plane==='XY')? COLORS.axisY : COLORS.axisZ; // vertical zero
-  const x0=mapX(0);
-  ctx.beginPath(); ctx.moveTo(x0, mapY(minY)); ctx.lineTo(x0, mapY(maxY)); ctx.stroke();
+  ctx.strokeStyle=(plane==='XY')?COLORS.axisY:COLORS.axisZ;
+  const x0=mapX(0); ctx.beginPath(); ctx.moveTo(x0,mapY(minY)); ctx.lineTo(x0,mapY(maxY)); ctx.stroke();
 
-  // Pipe band for depth
-  const thickness = Math.min(30, Math.max(8, s * 24 * 0.6)); // px
+  const thickness=Math.min(30, Math.max(8, s*24*0.6));
   ctx.lineCap='round';
 
-  // Bands
   for(const seg of segments){
-    const sx0=mapX(seg.start[0]), sy0=mapY( plane==='XY'? seg.start[1] : seg.start[2] );
-    const sx1=mapX(seg.end[0]),   sy1=mapY( plane==='XY'? seg.end[1]   : seg.end[2] );
-    ctx.strokeStyle = COLORS.pipeBand;
-    ctx.lineWidth = thickness;
-    ctx.beginPath(); ctx.moveTo(sx0, sy0); ctx.lineTo(sx1, sy1); ctx.stroke();
+    const sx0=mapX(seg.start[0]), sy0=mapY( plane==='XY'? seg.start[1]:seg.start[2] );
+    const sx1=mapX(seg.end[0]),   sy1=mapY( plane==='XY'? seg.end[1]  :seg.end[2] );
+    ctx.strokeStyle=COLORS.pipeBand; ctx.lineWidth=thickness;
+    ctx.beginPath(); ctx.moveTo(sx0,sy0); ctx.lineTo(sx1,sy1); ctx.stroke();
   }
-  // Centerlines
   for(const seg of segments){
-    const sx0=mapX(seg.start[0]), sy0=mapY( plane==='XY'? seg.start[1] : seg.start[2] );
-    const sx1=mapX(seg.end[0]),   sy1=mapY( plane==='XY'? seg.end[1]   : seg.end[2] );
-    ctx.strokeStyle = COLORS[seg.tCode] || COLORS.centerline;
-    ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(sx0, sy0); ctx.lineTo(sx1, sy1); ctx.stroke();
+    const sx0=mapX(seg.start[0]), sy0=mapY( plane==='XY'? seg.start[1]:seg.start[2] );
+    const sx1=mapX(seg.end[0]),   sy1=mapY( plane==='XY'? seg.end[1]  :seg.end[2] );
+    ctx.strokeStyle=COLORS[seg.tCode]||COLORS.centerline; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(sx0,sy0); ctx.lineTo(sx1,sy1); ctx.stroke();
   }
 
-  // Labels at marks
   ctx.fillStyle='#000'; ctx.font='14px system-ui';
   for(const m of marks){
     const x=m[1], y=(plane==='XY'? m[2] : m[3]);
     ctx.fillText(String(m[0]), mapX(x)+4, mapY(y)-16);
   }
 
-  // Pick markers + highlight bars at top, with leader lines
-  const topY = rect.y + 10;
+  const topY=rect.y+10;
   if(picksInfo.mode==='2'){
-    const [xl, xr]=picksInfo.picks;
-    drawTopPill(rect.x+12, topY-8, 130, 22, COLORS.pickLeft, 'Left pick');
-    drawTopPill(rect.x+152, topY-8, 140, 22, COLORS.pickRight, 'Right pick');
-    drawLeader(rect.x+77, topY+10, mapX(xl), mapY(0), COLORS.pickLeft);
-    drawLeader(rect.x+222, topY+10, mapX(xr), mapY(0), COLORS.pickRight);
-    drawPickMarker(mapX(xl), mapY(0), COLORS.pickLeft, 'L');
-    drawPickMarker(mapX(xr), mapY(0), COLORS.pickRight, 'R');
+    const [xl,xr]=picksInfo.picks;
+    drawTopPill(rect.x+12,topY-8,130,22, COLORS.pickLeft, 'Left pick');
+    drawTopPill(rect.x+152,topY-8,140,22, COLORS.pickRight,'Right pick');
+    drawLeader(rect.x+77,topY+10,mapX(xl),mapY(0),COLORS.pickLeft);
+    drawLeader(rect.x+222,topY+10,mapX(xr),mapY(0),COLORS.pickRight);
+    drawPickMarker(mapX(xl),mapY(0),COLORS.pickLeft,'L');
+    drawPickMarker(mapX(xr),mapY(0),COLORS.pickRight,'R');
   }else{
     const [L1,L2,R1,R2]=picksInfo.picks;
-    drawTopPill(rect.x+12, topY-8, 160, 22, COLORS.pickLeft, 'Left basket');
-    drawTopPill(rect.x+184, topY-8, 170, 22, COLORS.pickRight, 'Right basket');
-    drawLeader(rect.x+92, topY+10, mapX((L1+L2)/2), mapY(0), COLORS.pickLeft);
-    drawLeader(rect.x+270, topY+10, mapX((R1+R2)/2), mapY(0), COLORS.pickRight);
-    [ [L1,'L-'],[L2,'L+'],[R1,'R-'],[R2,'R+'] ].forEach(([x,label],i)=>{
-      drawPickMarker(mapX(x), mapY(0), (i<2?COLORS.pickLeft:COLORS.pickRight), label);
+    drawTopPill(rect.x+12,topY-8,160,22,COLORS.pickLeft,'Left basket');
+    drawTopPill(rect.x+184,topY-8,170,22,COLORS.pickRight,'Right basket');
+    drawLeader(rect.x+92,topY+10,mapX((L1+L2)/2),mapY(0),COLORS.pickLeft);
+    drawLeader(rect.x+270,topY+10,mapX((R1+R2)/2),mapY(0),COLORS.pickRight);
+    [[L1,'L-'],[L2,'L+'],[R1,'R-'],[R2,'R+']].forEach(([x,label],i)=>{
+      drawPickMarker(mapX(x),mapY(0),(i<2?COLORS.pickLeft:COLORS.pickRight),label);
     });
   }
 
-  // Border
-  ctx.strokeStyle='#cfd4d9'; ctx.lineWidth=1;
-  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.strokeStyle='#cfd4d9'; ctx.lineWidth=1; ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
 }
 
-function drawTopPill(x, y, w, h, color, label){
-  ctx.fillStyle=color; ctx.strokeStyle=color;
-  const r=h/2;
-  ctx.beginPath();
-  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+function drawTopPill(x,y,w,h,color,label){
+  ctx.fillStyle=color; ctx.strokeStyle=color; const r=h/2;
+  ctx.beginPath(); ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
   ctx.arc(x+w-r,y+r,r,-Math.PI/2,Math.PI/2);
-  ctx.lineTo(x+r,y+h);
-  ctx.arc(x+r,y+r,r,Math.PI/2,Math.PI*1.5);
-  ctx.closePath(); ctx.fill();
-  ctx.fillStyle='#000'; ctx.font='13px system-ui';
-  ctx.fillText(label, x+8, y+4);
+  ctx.lineTo(x+r,y+h); ctx.arc(x+r,y+r,r,Math.PI/2,Math.PI*1.5);
+  ctx.closePath(); ctx.fill(); ctx.fillStyle='#000'; ctx.font='13px system-ui'; ctx.fillText(label,x+8,y+4);
 }
-function drawLeader(x1,y1,x2,y2,color){
-  ctx.strokeStyle=color; ctx.lineWidth=2;
-  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
-}
-function drawPickMarker(x, y, color, label){
+function drawLeader(x1,y1,x2,y2,color){ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();}
+function drawPickMarker(x,y,color,label){
   ctx.strokeStyle=color; ctx.fillStyle=color;
-  ctx.beginPath();
-  ctx.moveTo(x, y-16); ctx.lineTo(x, y-2); ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(x, y-2); ctx.lineTo(x-6, y-10);
-  ctx.moveTo(x, y-2); ctx.lineTo(x+6, y-10);
-  ctx.stroke();
-  ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI*2); ctx.fill();
-  ctx.fillStyle='#000'; ctx.font='12px system-ui';
-  ctx.fillText(label, x+6, y-18);
+  ctx.beginPath(); ctx.moveTo(x,y-16); ctx.lineTo(x,y-2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x,y-2); ctx.lineTo(x-6,y-10); ctx.moveTo(x,y-2); ctx.lineTo(x+6,y-10); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label,x+6,y-18);
 }
 
-/* --------- Directions panel: headers, bullets, roll highlight --------- */
-function drawTextPanel(lines, rect){
-  // panel
-  ctx.strokeStyle='#cfd4d9'; ctx.lineWidth=1;
-  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-
-  const pad=16, maxW=rect.w-2*pad;
-  let y=rect.y+pad;
-
-  for(const line of lines){
-    if(line.type==='spacer'){ y += 8; continue; }
-
-    if(line.type==='header'){
-      ctx.fillStyle='#000'; ctx.font='20px system-ui';
-      y += 2; ctx.fillText(line.text, rect.x+pad, y); y += 6;
-      ctx.strokeStyle='#eee'; ctx.beginPath();
-      ctx.moveTo(rect.x+pad, y+8); ctx.lineTo(rect.x+rect.w-pad, y+8); ctx.stroke();
-      y += 18;
-      continue;
-    }
-
-    // bullet
-    const isRoll = line.highlight==='roll';
-    ctx.font='16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
-    const lh=26;
-
-    // bullet dot
-    ctx.fillStyle = isRoll ? (getComputedStyle(document.documentElement).getPropertyValue('--roll') || '#5bc0ff') : '#000';
-    ctx.beginPath(); ctx.arc(rect.x+pad+4, y+8, 3.5, 0, Math.PI*2); ctx.fill();
-
-    // wrapped text
-    ctx.fillStyle = isRoll ? (getComputedStyle(document.documentElement).getPropertyValue('--roll') || '#5bc0ff') : '#000';
-    y = drawWrappedText(line.text, rect.x+pad+16, y, maxW-16, lh);
-    y += 8; // spacing after each bullet
-  }
-}
-
-function drawWrappedText(text, x, y, maxWidth, lh){
-  const words=(text+'').split(' ');
-  let line='';
-  for(const w of words){
-    const test=line? line+' '+w : w;
-    if(ctx.measureText(test).width > maxWidth){
-      ctx.fillText(line, x, y);
-      line=w; y+=lh;
-    }else{
-      line=test;
-    }
-  }
-  if(line){ ctx.fillText(line, x, y); }
-  return y;
-}
-
-/* --------- Start clean --------- */
+/* Start */
 document.getElementById('addBtn').focus();
 </script>
 </body>
