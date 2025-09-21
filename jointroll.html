@@ -1,0 +1,1011 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Rigging CG Helper — v10.2 (Auto 4-Point, Joint-Limit, Flags)</title>
+<style>
+  :root{
+    --bg:#ffffff; --ink:#111; --panel:#f8f9fa; --border:#e9ecef; --accent:#0d6efd;
+    --roll:#5bc0ff; --pickL:#ffd60a; --pickR:#32cd32;
+  }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; color: var(--ink); background: var(--bg); }
+  h1 { font-size: 20px; margin: 0 0 10px; display:flex; align-items:center; gap:10px;}
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#d1e7dd; color:#0f5132; font-weight:700; font-size:12px; }
+  fieldset { border: 1px solid #ccc; border-radius: 10px; margin: 10px 0; padding: 10px 12px; }
+  legend { padding: 0 6px; font-weight: 600; }
+  label { display: block; margin: 6px 0 2px; font-size: 14px; }
+  select, input[type="number"], input[type="text"] { width: 100%; font-size: 16px; padding: 10px 12px; box-sizing: border-box; border-radius: 8px; border:1px solid #cfd4d9; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .row3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px;}
+  .btn { display: inline-block; padding: 10px 12px; margin: 8px 6px 0 0; border-radius: 10px; background: var(--accent); color: #fff; border: none; font-size: 16px; cursor:pointer; }
+  .btn.secondary { background: #6c757d; }
+  .items { margin-top: 6px; }
+  .item { padding: 8px; border: 1px dashed #999; border-radius: 8px; margin-bottom: 8px; font-size: 14px; }
+  .hint { color: #555; font-size: 13px; }
+  #sheet { width: 100%; max-width: 1000px; background: #fff; border: 1px solid #ddd; border-radius: 8px; display:block; }
+  .out { background: var(--panel); padding: 12px; border-radius: 10px; border: 1px solid var(--border); line-height: 1.5; font-size: 15px; }
+  .out h3 { margin: 6px 0; font-size: 16px; }
+  .out ul { margin: 6px 0 10px 20px; padding: 0; }
+  .out li { margin: 4px 0; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-weight:600; font-size:12px; color:#000; vertical-align:baseline; }
+  .pill.left { background: var(--pickL); }
+  .pill.right{ background: var(--pickR); }
+  .pill.roll { background: var(--roll); }
+  .muted { color:#444; font-size: 13px; }
+  #debug { margin-top:6px; font-size: 12px; color:#b00020; white-space: pre-wrap; border:1px dashed #ddd; padding:6px; border-radius:6px;}
+  .axis-key { font-size:12px; background:#f6f8fa; border:1px solid #e0e0e0; border-radius:8px; padding:8px; line-height:1.35; }
+  .axis-key strong{display:inline-block; width:2.4em;}
+</style>
+</head>
+<body>
+<h1>Rigging CG Helper — v10.2 <span class="badge" id="badge">JS not ready</span></h1>
+
+<fieldset>
+  <legend>Pick setup</legend>
+  <div class="row3">
+    <label>Pick mode
+      <select id="pickMode">
+        <option value="2">2 picks</option>
+        <option value="4">4 contacts (two baskets)</option>
+      </select>
+    </label>
+    <label>Pick spacing (in)
+      <input id="pickSpacing" type="number" inputmode="decimal" value="72">
+      <div class="hint">Used only in 2-point. 4-point spacing is AUTO by joint-limit rule.</div>
+    </label>
+    <label>Pick axes
+      <select id="pickAxes">
+        <option value="AUTO" selected>Auto</option>
+        <option value="X">X only</option>
+        <option value="Y">Y only</option>
+        <option value="Z">Z only</option>
+        <option value="XY">X & Y</option>
+        <option value="XZ">X & Z</option>
+        <option value="YZ">Y & Z</option>
+      </select>
+    </label>
+  </div>
+  <div class="row3">
+    <label>Basket spread per side (in)
+      <input id="basketSpread" type="number" inputmode="decimal" value="12">
+    </label>
+    <label>Joint limit (in)
+      <input id="jointLimit" type="number" inputmode="decimal" value="72">
+      <div class="hint">Max distance from any joint to nearest choker edge.</div>
+    </label>
+    <label>No-roll torque threshold (ft-lb, optional)
+      <input id="rollThresh" type="number" inputmode="decimal" placeholder="">
+    </label>
+  </div>
+  <div class="row">
+    <div class="axis-key">
+      <div><strong>X+</strong> left → right</div>
+      <div><strong>Y+</strong> toward you &nbsp;&nbsp; <strong>Y−</strong> away from you</div>
+      <div><strong>Z+</strong> up &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>Z−</strong> down</div>
+    </div>
+    <div class="hint">Plan shows X–Y; Elevation shows X–Z. Pick markers appear on the relevant zero lines for each axis.</div>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>Add item</legend>
+  <div class="row">
+    <label>Item type
+      <select id="itemType">
+        <option value="P">24&quot; pipe (per-inch)</option>
+        <option value="V">24&quot; valve (regular)</option>
+        <option value="I">24&quot; valve inline</option>
+        <option value="E">24&quot; 90° elbow</option>
+        <option value="F">24&quot; 45° elbow</option>
+        <option value="T">24&quot; tee (plain)</option>
+        <option value="W">24&quot; tee with valve</option>
+        <option value="G">Single 90 with valve</option>
+        <option value="X">Custom per-inch</option>
+        <option value="Y">Custom fixed</option>
+      </select>
+    </label>
+    <label>Orientation (layman directions)
+      <select id="orient">
+        <option value="Xp" selected>Right (X+)</option>
+        <option value="Xm">Left (X−)</option>
+        <option value="Yp">Toward You (Y+)</option>
+        <option value="Ym">Away From You (Y−)</option>
+        <option value="Zp">Up (Z+)</option>
+        <option value="Zm">Down (Z−)</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="row" id="lenRow" style="display:block">
+    <label>Length (in)
+      <input id="lenIn" type="number" inputmode="decimal" value="60">
+    </label>
+    <label id="wpiLabel">Weight per inch (lb/in)
+      <input id="wpi" type="number" inputmode="decimal" value="8.2">
+    </label>
+  </div>
+
+  <div class="row" id="fixedRow" style="display:none">
+    <label>Total weight (lb)
+      <input id="fixedW" type="number" inputmode="decimal" value="0">
+    </label>
+    <label>Effective length along chosen axis (in)
+      <input id="fixedL" type="number" inputmode="decimal" value="0">
+    </label>
+  </div>
+
+  <div id="single90Row" class="row" style="display:none">
+    <label>Straight before 90 (in)
+      <input id="s90_before" type="number" inputmode="decimal" value="0">
+    </label>
+    <label>Extra straight AFTER 90 (in)
+      <input id="s90_after" type="number" inputmode="decimal" value="0">
+    </label>
+    <label>Valve type
+      <select id="s90_vtype">
+        <option value="S">Standard</option>
+        <option value="I">Inline</option>
+      </select>
+    </label>
+  </div>
+
+  <button class="btn" id="addBtn" type="button">Add item</button>
+  <button class="btn secondary" id="removeLastBtn" type="button">Remove last item</button>
+  <button class="btn secondary" id="clearBtn" type="button">Clear list</button>
+
+  <div class="items" id="items"></div>
+  <div id="debug">debug: (none)</div>
+</fieldset>
+
+<button class="btn" id="computeBtn" type="button">Compute + Draw</button>
+<button class="btn secondary" id="downloadBtn" type="button" disabled>Download PNG</button>
+
+<fieldset>
+  <legend>Output (quick)</legend>
+  <div id="summary" class="out"></div>
+  <div class="muted">Legend: <span class="pill left">Left pick</span> <span class="pill right">Right pick</span> <span class="pill roll">Roll</span></div>
+</fieldset>
+
+<fieldset>
+  <legend>Drawings</legend>
+  <canvas id="sheet"></canvas>
+  <div class="muted">Sheet shows: Plan (X–Y) and Elevation (X–Z). X-picks & Y-picks drawn on Plan; X-picks & Z-picks drawn on Elevation.</div>
+</fieldset>
+
+<script>
+(function(){ var b=document.getElementById('badge'); if(b) b.textContent='JS Loaded v10.2'; })();
+
+/* Idempotent wiring guard */
+if(!window.__rig_v10_wired){
+  window.__rig_v10_wired = true;
+
+  /* HiDPI */
+  function setupCanvas(canvas, cssW, cssH) {
+    cssW = cssW || 1000; cssH = cssH || 1200;
+    var dpr = window.devicePixelRatio || 1;
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+    canvas.width  = Math.floor(cssW * dpr);
+    canvas.height = Math.floor(cssH * dpr);
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.textBaseline = 'top';
+    return ctx;
+  }
+
+  /* Constants */
+  var PIPE_DIAM_IN = 24.0;
+  var PIPE_R_IN = PIPE_DIAM_IN / 2.0;
+  var W_PER_IN_DEFAULT = 8.2;
+  var W_EL90=475.0, S_EL90=36.0, R_EL90=(2*S_EL90)/Math.PI;
+  var W_EL45=240.0, S_EL45=15.0;
+  var W_COUP=115.0;
+  var W_VALVE_BODY=451.0, L_VALVE_STD=12.0;
+  var W_VALVE_INLINE=631.0, L_VALVE_INLINE=12.0;
+  var W_TEE_BODY=477.0, L_TEE=20.0;
+
+  var DEFAULT_PICK_SPACING=72.0;
+  var DEFAULT_BASKET_SPREAD=12.0;
+
+  /* Colors */
+  var COLORS = {
+    axisX:'#d12222', axisY:'#2a9d2a', axisZ:'#1f6feb',
+    P:'#666666', E:'#2aa198', F:'#2aa198',
+    V:'#ff9100', I:'#ff9100', C:'#8e44ad',
+    T:'#d33682', W:'#d33682', G:'#2aa198',
+    X:'#8d6e63', Y:'#8d6e63',
+    pickLeft: (getComputedStyle(document.documentElement).getPropertyValue('--pickL') || '#ffd60a').trim(),
+    pickRight:(getComputedStyle(document.documentElement).getPropertyValue('--pickR') || '#32cd32').trim(),
+    pipeBand:'rgba(100,100,100,0.18)',
+    centerline:'#000',
+    flag:'#d32f2f'
+  };
+
+  /* Helpers */
+  var ORIENTS={
+    Xp:[1,0,0], Xm:[-1,0,0],
+    Yp:[0,1,0], Ym:[0,-1,0],
+    Zp:[0,0,1], Zm:[0,0,-1]
+  };
+  function r4(x){return Math.round(x*4)/4;}
+  function fmtFtIn(x){
+    var v=r4(x); var ft=Math.floor(v/12); var rem=v-ft*12;
+    var whole=Math.floor(rem); var frac=Math.round((rem-whole)*100)/100;
+    var map={"0":"", "0.25":"-1/4", "0.5":"-1/2", "0.75":"-3/4"};
+    var tag = map.hasOwnProperty(String(frac)) ? map[String(frac)] : null;
+    var inch = tag!==null ? (whole+tag+'"') : (rem.toFixed(2)+'"');
+    return ft? (ft+"' "+inch) : inch;
+  }
+  function r8(x){return Math.round(x*8)/8;}
+  function fmtEighthIn(x){
+    var v=r8(x), whole=Math.floor(v), frac=v-whole;
+    var fr={"0":"", "0.125":" 1/8","0.25":" 1/4","0.375":" 3/8","0.5":" 1/2","0.625":" 5/8","0.75":" 3/4","0.875":" 7/8"};
+    if(fr.hasOwnProperty(String(frac))){
+      if(whole) return whole+fr[String(frac)]+'"';
+      return fr[String(frac)] ? fr[String(frac)].trim()+'"' : '0"';
+    }
+    return v.toFixed(3)+'"';
+  }
+  function rollAngleDegForY(y_cg,R){ R = (typeof R==='number'?R:PIPE_R_IN); var y=Math.max(-R,Math.min(R,y_cg)); return R>0?(Math.asin(y/R)*180/Math.PI):0;}
+
+  /* State */
+  var items=[],segments=[],marks=[];
+  var _violations=[]; // filled each compute
+
+  /* UI handles */
+  function el(id){ return document.getElementById(id); }
+  var pickModeEl, pickSpacingEl, pickAxesEl, basketSpreadEl, rollThreshEl, jointLimitEl;
+  var itemTypeEl, orientEl, lenRow, wpiEl, wpiLabel, lenInEl, fixedRow, fixedWEl, fixedLEl;
+  var single90Row, s90_beforeEl, s90_afterEl, s90_vtypeEl;
+  var itemsDiv, summaryDiv, sheet, debugDiv;
+  var ctx;
+
+  function updateDetailRows(){
+    var t=itemTypeEl.value;
+    lenRow.style.display='none'; fixedRow.style.display='none'; single90Row.style.display='none';
+    if(t==='P'||t==='X'){ lenRow.style.display='grid'; wpiLabel.style.display='block'; }
+    if(t==='Y'){ fixedRow.style.display='grid'; }
+    if(t==='G'){ single90Row.style.display='grid'; }
+    if(t!=='X') wpiEl.value=W_PER_IN_DEFAULT;
+  }
+
+  function addItemSummary(text){
+    var d=document.createElement('div'); d.className='item'; d.textContent=text; itemsDiv.appendChild(d);
+  }
+
+  function resetAll(){
+    items=[]; segments=[]; marks=[]; _violations=[];
+    itemsDiv.innerHTML=''; summaryDiv.innerHTML='';
+    if(ctx) ctx.clearRect(0,0,sheet.width,sheet.height);
+    if(debugDiv) debugDiv.textContent='debug: reset';
+  }
+
+  function removeLast(){
+    if(items.length===0) return;
+    items.pop();
+    if(segments.length>0) segments.pop();
+    if(marks.length>0) marks.pop();
+    if(itemsDiv.lastElementChild) itemsDiv.removeChild(itemsDiv.lastElementChild);
+    if(ctx) ctx.clearRect(0,0,sheet.width,sheet.height);
+    if(debugDiv) debugDiv.textContent='debug: removed last; items='+items.length;
+  }
+
+  function getCurrentEnd(){ return segments.length===0?[0,0,0]:segments[segments.length-1].end.slice(); }
+
+  function pushSegment(tCode,dir,L,labelIdx){
+    var start=getCurrentEnd(); var end=[ start[0]+dir[0]*L, start[1]+dir[1]*L, start[2]+dir[2]*L ];
+    segments.push({tCode:tCode,start:start,end:end});
+    var mid=[(start[0]+end[0])/2,(start[1]+end[1])/2,(start[2]+end[2])/2];
+    marks.push([labelIdx,mid[0],mid[1],mid[2]]);
+  }
+
+  /* Add items */
+  function addItem(){
+    try{
+      var t=itemTypeEl.value; var idx=items.length+1; var d=ORIENTS[orientEl.value]||[1,0,0];
+      var dx=d[0], dy=d[1], dz=d[2];
+
+      function placeLinear(name,L,W,xcgLocal,tCode){
+        L=Math.max(0, Number(L)||0);
+        var Lx=L;
+        if(xcgLocal==null) xcgLocal=L/2;
+        items.push({name:name,length:Lx,weight:W,xcg_local:xcgLocal,tCode:tCode});
+        pushSegment(tCode,[dx,dy,dz],L,idx);
+      }
+
+      if(t==='P'){
+        var L=Number(lenInEl.value)||0, wpi=Number(wpiEl.value)||W_PER_IN_DEFAULT; var W=wpi*L;
+        placeLinear('24\" pipe (per-inch)',L,W,null,'P');
+        addItemSummary(idx+'. Pipe '+L.toFixed(1)+' in @ '+wpi+' lb/in → '+W.toFixed(1)+' lb');
+
+      }else if(t==='X'){
+        var Lx=Number(lenInEl.value)||0, wpiX=Number(wpiEl.value)||W_PER_IN_DEFAULT; var WX=wpiX*Lx;
+        placeLinear('Custom per-inch',Lx,WX,null,'X');
+        addItemSummary(idx+'. Custom per-inch '+Lx.toFixed(1)+' in @ '+wpiX+' → '+WX.toFixed(1)+' lb');
+
+      }else if(t==='Y'){
+        var WY=Number(fixedWEl.value)||0, LY=Number(fixedLEl.value)||0;
+        placeLinear('Custom fixed',LY,WY,null,'Y');
+        addItemSummary(idx+'. Custom fixed '+WY.toFixed(1)+' lb, eff L='+LY.toFixed(1)+' in');
+
+      }else if(t==='V'){
+        var LV=L_VALVE_STD, WV=W_VALVE_BODY;
+        placeLinear('24\" valve (regular)',LV,WV,LV/2,'V');
+        addItemSummary(idx+'. Valve (regular) L='+LV+' in, W='+WV.toFixed(1)+' lb');
+
+      }else if(t==='I'){
+        var LI=L_VALVE_INLINE, WI=W_VALVE_INLINE;
+        placeLinear('24\" valve (inline)',LI,WI,LI/2,'I');
+        addItemSummary(idx+'. Valve (inline) L='+LI+' in, W='+WI.toFixed(1)+' lb');
+
+      }else if(t==='E'){
+        var LE=S_EL90, WE=W_EL90;
+        placeLinear('24\" 90° elbow',LE,WE,LE/2,'E');
+        addItemSummary(idx+'. 90° elbow L='+LE+' in, W='+WE.toFixed(1)+' lb');
+
+      }else if(t==='F'){
+        var LF=S_EL45, WF=W_EL45;
+        placeLinear('24\" 45° elbow',LF,WF,LF/2,'F');
+        addItemSummary(idx+'. 45° elbow L='+LF+' in, W='+WF.toFixed(1)+' lb');
+
+      }else if(t==='T'){
+        var LT=L_TEE, WT=W_TEE_BODY;
+        placeLinear('24\" tee (plain)',LT,WT,LT/2,'T');
+        addItemSummary(idx+'. Tee (plain) L='+LT+' in, W='+WT.toFixed(1)+' lb');
+
+      }else if(t==='W'){
+        var LW=L_TEE;
+        var parts=[[W_TEE_BODY,LW/2],[W_VALVE_BODY,LW/2]];
+        var WW = parts.reduce(function(a,p){return a+p[0];},0);
+        var xcgW = parts.reduce(function(a,p){return a+p[0]*p[1];},0)/WW;
+        placeLinear('24\" tee with valve',LW,WW,xcgW,'W');
+        addItemSummary(idx+'. Tee w/ valve L='+LW+' in, W='+WW.toFixed(1)+' lb');
+      }
+
+      if(debugDiv) debugDiv.textContent = 'debug: items='+items.length;
+    }catch(err){
+      if(debugDiv) debugDiv.textContent = 'debug: Add item failed: ' + (err && err.message ? err.message : err);
+    }
+  }
+
+  function computeExtents(){
+    function axisExt(sel){
+      var arr=[];
+      for(var k=0;k<segments.length;k++){
+        arr.push(segments[k].start[sel]);
+        arr.push(segments[k].end[sel]);
+      }
+      if(arr.length===0) arr=[0];
+      var min=Math.min.apply(null,arr), max=Math.max.apply(null,arr);
+      return {min:min,max:max,span:(max-min)};
+    }
+    return { X:axisExt(0), Y:axisExt(1), Z:axisExt(2) };
+  }
+
+  /* Compute CG + auto picks */
+  function computeAndDraw(){
+    if(items.length===0){ alert('Add at least one item.'); return; }
+
+    var pickMode=pickModeEl.value;
+    var pickAxesSel=pickAxesEl.value; // 'AUTO','X','Y','Z','XY','XZ','YZ'
+    var pickSpacing=Math.max(0, Number(pickSpacingEl.value)||DEFAULT_PICK_SPACING); // used only for 2-point
+    var basketSpread=Math.max(0, Number(basketSpreadEl.value)||DEFAULT_BASKET_SPREAD);
+    var jointLimit=Math.max(0, Number(jointLimitEl.value)||72);
+    var rollThresh=(rollThreshEl.value===''? null : Math.max(0, Number(rollThreshEl.value)));
+
+    // Weighted CG from item midpoints + couplings at every joint
+    var totalW=0, sumX=0, sumY=0, sumZ=0;
+    for(var i=0;i<items.length;i++){
+      var it=items[i], m=marks[i];
+      totalW += it.weight; sumX += it.weight*m[1]; sumY += it.weight*m[2]; sumZ += it.weight*m[3];
+    }
+    for(var j=0;j<segments.length-1;j++){
+      var end=segments[j].end;
+      totalW += W_COUP; sumX += W_COUP*end[0]; sumY += W_COUP*end[1]; sumZ += W_COUP*end[2];
+    }
+    var cg={ X: (totalW?sumX/totalW:0), Y:(totalW?sumY/totalW:0), Z:(totalW?sumZ/totalW:0) };
+
+    var ext=computeExtents();
+    window.v10Last = { cg: cg, ext: ext };
+
+    function jointsAlongAxis(sel){
+      var set = new Set();
+      for(var k=0;k<segments.length;k++){
+        set.add(segments[k].start[sel]);
+        set.add(segments[k].end[sel]);
+      }
+      var arr = Array.from(set);
+      arr.sort(function(a,b){ return a-b; });
+      return arr;
+    }
+
+    function chooseAxes(){
+      if(pickAxesSel==='X' || pickAxesSel==='Y' || pickAxesSel==='Z'){ return [pickAxesSel]; }
+      if(pickAxesSel==='XY' || pickAxesSel==='XZ' || pickAxesSel==='YZ'){ return pickAxesSel.split(''); }
+      var spans=[['X',ext.X.span],['Y',ext.Y.span],['Z',ext.Z.span]].sort(function(a,b){return b[1]-a[1];});
+      if(pickMode==='2'){ return [spans[0][0]]; }
+      var axes=[]; for(var s=0;s<spans.length && axes.length<2;s++){ if(spans[s][1]>0) axes.push(spans[s][0]); }
+      if(axes.length===0) axes=['X']; return axes;
+    }
+
+    // Build picks for each axis
+    var selectedAxes = chooseAxes();
+    _violations=[];
+    var picksets = selectedAxes.map(function(axis){
+      var ex=ext[axis];
+      var cgA=cg[axis];
+      var sel=(axis==='X'?0:(axis==='Y'?1:2));
+      var joints=jointsAlongAxis(sel);
+
+      if(pickMode==='2'){
+        var left = Math.max(ex.min, Math.min(ex.max - pickSpacing, cgA - pickSpacing/2));
+        var right = left + pickSpacing;
+        if(right>ex.max){ right=ex.max; left=Math.max(ex.min, right - pickSpacing); }
+        return {mode:'2', axis:axis, picks:[left,right], ex:ex};
+      }
+
+      // 4-point auto: start from end-side rule using first inboard joints
+      var leftFirstJoint  = ex.min, rightFirstJoint = ex.max;
+      for(var i=0;i<joints.length;i++){ if(joints[i] > ex.min){ leftFirstJoint = joints[i]; break; } }
+      for(var k=joints.length-1;k>=0;k--){ if(joints[k] < ex.max){ rightFirstJoint = joints[k]; break; } }
+
+      var s = basketSpread;
+      var L_out = Math.max(ex.min, leftFirstJoint - jointLimit);
+      var L_in  = L_out + s;
+      var R_out = Math.min(ex.max, rightFirstJoint + jointLimit);
+      var R_in  = R_out - s;
+
+      // keep inside extents
+      if(L_in > ex.max){ L_out = Math.max(ex.min, ex.max - s); L_in = L_out + s; }
+      if(R_in < ex.min){ R_out = Math.min(ex.max, ex.min + s); R_in = R_out - s; }
+
+      // de-overlap (bias outward)
+      if(L_in > R_in){
+        var mid=(ex.min+ex.max)/2;
+        L_out=Math.max(ex.min, mid - s); L_in=L_out+s;
+        R_in =Math.min(ex.max, mid + s); R_out=R_in + s;
+        if(L_in>R_in){ L_out=ex.min; L_in=L_out+s; R_out=ex.max; R_in=R_out-s; }
+      }
+
+      // ---- Iterative joint pass: ensure each joint is within limit of nearest edge ----
+      function nearestEdge(x){ 
+        var edges=[L_out,L_in,R_in,R_out]; 
+        var best=0, d=Infinity;
+        for(var t=0;t<edges.length;t++){ var dd=Math.abs(x-edges[t]); if(dd<d){d=dd;best=t;} }
+        return {idx:best, dist:d};
+      }
+      function clampPair(){
+        // inside extents
+        if(L_out<ex.min){ L_out=ex.min; L_in=L_out+s; }
+        if(R_out>ex.max){ R_out=ex.max; R_in=R_out-s; }
+        // keep order: L_out <= L_in <= R_in <= R_out
+        if(L_in>R_in){
+          var half=(L_in+R_in)/2;
+          L_in=Math.min(half, ex.max); L_out=L_in-s;
+          R_in=Math.max(half, ex.min); R_out=R_in+s;
+          // edge clamps
+          if(L_out<ex.min){ L_out=ex.min; L_in=L_out+s; }
+          if(R_out>ex.max){ R_out=ex.max; R_in=R_out-s; }
+        }
+      }
+
+      var iter=0, maxIter=12;
+      var changed=true;
+      while(changed && iter<maxIter){
+        changed=false; iter++;
+        for(var jx=0;jx<joints.length;jx++){
+          var xj=joints[jx];
+          // skip if joint equals an edge exactly
+          var n=nearestEdge(xj);
+          if(n.dist<=jointLimit+1e-6) continue;
+
+          // Decide which basket to nudge based on joint location
+          var midLR=(L_in+R_in)/2;
+          if(xj<=midLR){
+            // Pull left basket toward xj by the needed amount to hit the limit, prefer moving inner edge (keeps outer end protection)
+            var targetEdge = (Math.abs(xj-L_in) <= Math.abs(xj-L_out)) ? 'L_in' : 'L_out';
+            var need = n.dist - jointLimit;
+            if(targetEdge==='L_in'){
+              L_in += (xj<L_in? -need : need);
+              L_out = L_in - s;
+            }else{
+              L_out += (xj<L_out? -need : need);
+              L_in = L_out + s;
+            }
+          }else{
+            var targetEdgeR = (Math.abs(xj-R_in) <= Math.abs(xj-R_out)) ? 'R_in' : 'R_out';
+            var needR = n.dist - jointLimit;
+            if(targetEdgeR==='R_in'){
+              R_in += (xj<R_in? -needR : needR);
+              R_out = R_in + s;
+            }else{
+              R_out += (xj<R_out? -needR : needR);
+              R_in = R_out - s;
+            }
+          }
+          clampPair();
+          changed=true;
+        }
+      }
+
+      // After iteration, compute violations list for this axis
+      var axisViol=[];
+      for(var jv=0;jv<joints.length;jv++){
+        var xj=joints[jv];
+        var d=Math.min(
+          Math.abs(xj-L_out), Math.abs(xj-L_in),
+          Math.abs(xj-R_in),  Math.abs(xj-R_out)
+        );
+        if(d>jointLimit+1e-6){
+          axisViol.push({x:xj, overBy: d-jointLimit});
+        }
+      }
+      if(axisViol.length){
+        _violations.push({axis:axis, ex:ex, joints:axisViol, limit:jointLimit});
+      }
+
+      return {mode:'4', axis:axis, picks:[L_out,L_in,R_in,R_out], ex:ex,
+              autoJointRoll:true, joints:joints, leftFirstJoint, rightFirstJoint, jointLimit:jointLimit};
+    });
+
+    // ---- OUTPUT ----
+    var html='';
+    html += '<h3>Rigging Summary</h3><ul>';
+    var itemsWeight = items.reduce(function(a,it){return a+it.weight;},0);
+    var couplingsCount = Math.max(0, items.length-1);
+    var couplingsWeight = couplingsCount * W_COUP;
+    var totalWeight = itemsWeight + couplingsWeight;
+    html += '<li>Total weight: <b>'+totalWeight.toFixed(1)+' lb</b> (items '+itemsWeight.toFixed(1)+' + couplings '+couplingsWeight.toFixed(1)+' ['+couplingsCount+'×])</li>';
+    html += '<li>CG (true 3D): X=<b>'+cg.X.toFixed(2)+' in</b>, Y=<b>'+cg.Y.toFixed(2)+' in</b>, Z=<b>'+cg.Z.toFixed(2)+' in</b></li>';
+    html += '</ul>';
+
+    picksets.forEach(function(ps){
+      var axis=ps.axis, ex=ps.ex;
+      html += '<h3>Pick Points (axis '+axis+')</h3><ul>';
+      if(ps.mode==='2'){
+        html += '<li><span class="pill left">Left</span> '+fmtFtIn(ps.picks[0]-ex.min)+' from Min '+axis+' Edge</li>';
+        html += '<li><span class="pill right">Right</span> '+fmtFtIn(ps.picks[1]-ex.min)+' from Min '+axis+' Edge</li>';
+        html += '<li>Pick spacing '+fmtFtIn(pickSpacing)+'</li>';
+      }else{
+        var L1=ps.picks[0], L2=ps.picks[1], R1=ps.picks[2], R2=ps.picks[3];
+        html += '<li><span class="pill left">Left basket</span> (L−,L+): '+fmtFtIn(L1-ex.min)+' & '+fmtFtIn(L2-ex.min)+' from Min '+axis+' Edge</li>';
+        html += '<li><span class="pill right">Right basket</span> (R−,R+): '+fmtFtIn(R1-ex.min)+' & '+fmtFtIn(R2-ex.min)+' from Min '+axis+' Edge</li>';
+        html += '<li><i>Spacing: AUTO (max '+fmtFtIn(ps.jointLimit)+' to nearest joint). Basket spread per side = '+fmtFtIn(basketSpread)+'</i></li>';
+        html += '<li class="muted">Nearest end joints used: left '+fmtFtIn(ps.leftFirstJoint-ex.min)+' from min, right '+fmtFtIn(ps.ex.max-ps.rightFirstJoint)+' from max</li>';
+      }
+      html += '</ul>';
+    });
+
+    var roll_deg=rollAngleDegForY(cg.Y,PIPE_R_IN);
+    var roll_side=cg.Y>0?'toward +Y':(cg.Y<0?'toward -Y':'no roll needed');
+    var arc_in=PIPE_R_IN*(Math.abs(roll_deg)*Math.PI/180);
+    var arc_in_str=fmtEighthIn(arc_in);
+
+    html += '<h3>Roll</h3><ul>';
+    html += '<li><span class="pill roll">Roll</span> chokers: ~'+roll_deg.toFixed(1)+'° '+roll_side+'</li>';
+    html += '<li><span class="pill roll">Roll</span> circumference offset per choker: '+arc_in_str+'</li>';
+    if(rollThresh!==null) html += '<li>No-roll torque threshold (ft-lb): '+Math.round(rollThresh)+'</li>';
+
+    if(_violations.length){
+      html += '<li><b>Joint-limit violations (after auto-adjust):</b><ul>';
+      _violations.forEach(function(v){
+        v.joints.forEach(function(j){
+          var fromMin = j.x - v.ex.min;
+          html += '<li>Axis '+v.axis+': joint at '+fmtFtIn(fromMin)+' from min — exceeds by '+(j.overBy).toFixed(1)+' in</li>';
+        });
+      });
+      html += '</ul></li>';
+    }
+    html += '</ul>';
+
+    summaryDiv.innerHTML = html;
+
+    drawSheet(picksets);
+
+    el('downloadBtn').disabled=false;
+  }
+
+  function drawSheet(picksets){
+    ctx=setupCanvas(sheet, 1000, 1200);
+    var W=1000,H=1200,pad=28;
+    var secH=Math.floor((H-pad*4)/2);
+    var planRect={x:pad,y:pad,w:W-2*pad,h:secH};
+    var elevRect={x:pad,y:pad*2+secH,w:W-2*pad,h:secH};
+
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+
+    var verts=[[0,0,0]];
+    for(var i=0;i<segments.length;i++){ verts.push( segments[i].end.slice() ); }
+    var px=verts.map(function(v){return v[0]}), py=verts.map(function(v){return v[1]}), pz=verts.map(function(v){return v[2]});
+
+    drawProjection(planRect,px,py,'Plan (X–Y)',picksets,'XY');
+    drawProjection(elevRect,px,pz,'Elevation (X–Z)',picksets,'XZ');
+  }
+
+  function drawProjection(rect,px,py,title,picksets,plane){
+    var minX=Math.min.apply(null, px.concat([0])), maxX=Math.max.apply(null, px.concat([1]));
+    var minY=Math.min.apply(null, py.concat([-1])), maxY=Math.max.apply(null, py.concat([1]));
+
+    var pad=46;
+    var sx=(rect.w-pad*2)/((maxX-minX)||1);
+    var sy=(rect.h-pad*2)/((maxY-minY)||1);
+    var s=Math.min(sx,sy);
+    function mapX(x){ return rect.x+pad+(x-minX)*s; }
+    function mapY(y){ return rect.y+rect.h-pad-(y-minY)*s; }
+
+    ctx.fillStyle='#000'; ctx.font='20px system-ui';
+    ctx.fillText(title, rect.x, rect.y-6);
+
+    ctx.lineWidth=2;
+    ctx.strokeStyle=COLORS.axisX;
+    ctx.beginPath(); ctx.moveTo(mapX(minX), mapY(0)); ctx.lineTo(mapX(maxX), mapY(0)); ctx.stroke();
+    ctx.strokeStyle=(plane==='XY')?COLORS.axisY:COLORS.axisZ;
+    var x0=mapX(0); ctx.beginPath(); ctx.moveTo(x0,mapY(minY)); ctx.lineTo(x0,mapY(maxY)); ctx.stroke();
+
+    var thickness=Math.min(30, Math.max(8, s*24*0.6));
+    ctx.lineCap='round';
+
+    for(var i=0;i<segments.length;i++){
+      var seg=segments[i];
+      var sx0=mapX(seg.start[0]), sy0=mapY( plane==='XY'? seg.start[1]:seg.start[2] );
+      var sx1=mapX(seg.end[0]),   sy1=mapY( plane==='XY'? seg.end[1]  :seg.end[2] );
+      ctx.strokeStyle=COLORS.pipeBand; ctx.lineWidth=thickness;
+      ctx.beginPath(); ctx.moveTo(sx0,sy0); ctx.lineTo(sx1,sy1); ctx.stroke();
+    }
+    for(var i2=0;i2<segments.length;i2++){
+      var seg2=segments[i2];
+      var sx02=mapX(seg2.start[0]), sy02=mapY( plane==='XY'? seg2.start[1]:seg2.start[2] );
+      var sx12=mapX(seg2.end[0]),   sy12=mapY( plane==='XY'? seg2.end[1]  :seg2.end[2] );
+      ctx.strokeStyle=COLORS[seg2.tCode]||COLORS.centerline; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(sx02,sy02); ctx.lineTo(sx12,sy12); ctx.stroke();
+    }
+
+    // labels
+    ctx.fillStyle='#000'; ctx.font='14px system-ui';
+    for(var m=0;m<marks.length;m++){
+      var mk=marks[m];
+      var x=mk[1], y=(plane==='XY'? mk[2] : mk[3]);
+      ctx.fillText(String(mk[0]), mapX(x)+4, mapY(y)-16);
+    }
+
+    // Draw pick markers for axes projecting into this plane
+    var topY=rect.y+10;
+    function topLabelX(next){ var x=rect.x+12+next; var w=160; return [x,w]; }
+
+    var nextLabelOffset=0;
+    picksets.forEach(function(ps){
+      var axis=ps.axis;
+      if(plane==='XY' && (axis==='X' || axis==='Y')){
+        var pillText = (axis==='X'?'X-axis picks':'Y-axis picks');
+        var dims = topLabelX(nextLabelOffset);
+        drawTopPill(dims[0],topY-8,dims[1],22, (axis==='X'?COLORS.pickLeft:COLORS.pickRight), pillText);
+        nextLabelOffset += dims[1]+12;
+
+        if(ps.mode==='2'){
+          if(axis==='X'){
+            var xl=ps.picks[0], xr=ps.picks[1];
+            drawLeader(dims[0]+dims[1]/2,topY+10,mapX(xl),mapY(0),COLORS.pickLeft);
+            drawLeader(dims[0]+dims[1]/2,topY+10,mapX(xr),mapY(0),COLORS.pickRight);
+            drawPickMarker(mapX(xl),mapY(0),COLORS.pickLeft,'L');
+            drawPickMarker(mapX(xr),mapY(0),COLORS.pickRight,'R');
+          }else{
+            var yb=ps.picks[0], yt=ps.picks[1];
+            drawLeader(dims[0]+dims[1]/2,topY+10,mapX(0),mapY(yb),COLORS.pickLeft);
+            drawLeader(dims[0]+dims[1]/2,topY+10,mapX(0),mapY(yt),COLORS.pickRight);
+            drawPickMarker(mapX(0),mapY(yb),COLORS.pickLeft,'L');
+            drawPickMarker(mapX(0),mapY(yt),COLORS.pickRight,'R');
+          }
+        }else{
+          if(axis==='X'){
+            var L1=ps.picks[0], L2=ps.picks[1], R1=ps.picks[2], R2=ps.picks[3];
+            drawLeader(dims[0]+dims[1]/2,topY+10,mapX((L1+L2)/2),mapY(0),COLORS.pickLeft);
+            drawLeader(dims[0]+dims[1]/2,topY+10,mapX((R1+R2)/2),mapY(0),COLORS.pickRight);
+            [[L1,'L-'],[L2,'L+'],[R1,'R-'],[R2,'R+']].forEach(function(p,i){
+              drawPickMarker(mapX(p[0]),mapY(0),(i<2?COLORS.pickLeft:COLORS.pickRight),p[1]);
+            });
+          }else{
+            var L1y=ps.picks[0], L2y=ps.picks[1], R1y=ps.picks[2], R2y=ps.picks[3];
+            drawLeader(dims[0]+dims[1]/2,topY+10,mapX(0),mapY((L1y+L2y)/2),COLORS.pickLeft);
+            drawLeader(dims[0]+dims[1]/2,topY+10,mapX(0),mapY((R1y+R2y)/2),COLORS.pickRight);
+            [[L1y,'L-'],[L2y,'L+'],[R1y,'R-'],[R2y,'R+']].forEach(function(p,i){
+              drawPickMarker(mapX(0),mapY(p[0]),(i<2?COLORS.pickLeft:COLORS.pickRight),p[1]);
+            });
+          }
+        }
+      }
+
+      if(plane==='XZ' && (axis==='X' || axis==='Z')){
+        var pillText2 = (axis==='X'?'X-axis picks':'Z-axis picks');
+        var dims2 = topLabelX(nextLabelOffset);
+        drawTopPill(dims2[0],topY-8,dims2[1],22, (axis==='X'?COLORS.pickLeft:COLORS.pickRight), pillText2);
+        nextLabelOffset += dims2[1]+12;
+
+        if(ps.mode==='2'){
+          if(axis==='X'){
+            var xl2=ps.picks[0], xr2=ps.picks[1];
+            drawLeader(dims2[0]+dims2[1]/2,topY+10,mapX(xl2),mapY(0),COLORS.pickLeft);
+            drawLeader(dims2[0]+dims2[1]/2,topY+10,mapX(xr2),mapY(0),COLORS.pickRight);
+            drawPickMarker(mapX(xl2),mapY(0),COLORS.pickLeft,'L');
+            drawPickMarker(mapX(xr2),mapY(0),COLORS.pickRight,'R');
+          }else{
+            var zb=ps.picks[0], zt=ps.picks[1];
+            drawLeader(dims2[0]+dims2[1]/2,topY+10,mapX(0),mapY(zb),COLORS.pickLeft);
+            drawLeader(dims2[0]+dims2[1]/2,topY+10,mapX(0),mapY(zt),COLORS.pickRight);
+            drawPickMarker(mapX(0),mapY(zb),COLORS.pickLeft,'L');
+            drawPickMarker(mapX(0),mapY(zt),COLORS.pickRight,'R');
+          }
+        }else{
+          if(axis==='X'){
+            var L1x=ps.picks[0], L2x=ps.picks[1], R1x=ps.picks[2], R2x=ps.picks[3];
+            drawLeader(dims2[0]+dims2[1]/2,topY+10,mapX((L1x+L2x)/2),mapY(0),COLORS.pickLeft);
+            drawLeader(dims2[0]+dims2[1]/2,topY+10,mapX((R1x+R2x)/2),mapY(0),COLORS.pickRight);
+            [[L1x,'L-'],[L2x,'L+'],[R1x,'R-'],[R2x,'R+']].forEach(function(p,i){
+              drawPickMarker(mapX(p[0]),mapY(0),(i<2?COLORS.pickLeft:COLORS.pickRight),p[1]);
+            });
+          }else{
+            var L1z=ps.picks[0], L2z=ps.picks[1], R1z=ps.picks[2], R2z=ps.picks[3];
+            drawLeader(dims2[0]+dims2[1]/2,topY+10,mapX(0),mapY((L1z+L2z)/2),COLORS.pickLeft);
+            drawLeader(dims2[0]+dims2[1]/2,topY+10,mapX(0),mapY((R1z+R2z)/2),COLORS.pickRight);
+            [[L1z,'L-'],[L2z,'L+'],[R1z,'R-'],[R2z,'R+']].forEach(function(p,i){
+              drawPickMarker(mapX(0),mapY(p[0]),(i<2?COLORS.pickLeft:COLORS.pickRight),p[1]);
+            });
+          }
+        }
+      }
+    });
+
+    // draw red flags for violations (Plan only; axis X and Y respectively)
+    _violations.forEach(function(v){
+      if( (plane==='XY' && (v.axis==='X' || v.axis==='Y')) ||
+          (plane==='XZ' && (v.axis==='X' || v.axis==='Z')) ){
+        v.joints.forEach(function(j){
+          // map to appropriate plane coordinate on the zero line of the other axis
+          var xCoord = (v.axis==='X') ? j.x : 0;
+          var yCoord = (plane==='XY' ? (v.axis==='Y'? j.x : 0) : (v.axis==='Z'? j.x : 0));
+          var mx = mapX(xCoord);
+          var my = mapY(yCoord);
+          drawFlag(mx,my, COLORS.flag);
+        });
+      }
+    });
+
+    ctx.strokeStyle='#cfd4d9'; ctx.lineWidth=1; ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
+  }
+
+  function drawTopPill(x,y,w,h,color,label){
+    ctx.fillStyle=color; ctx.strokeStyle=color; var r=h/2;
+    ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+    ctx.arc(x+w-r,y+r,r,-Math.PI/2,Math.PI/2);
+    ctx.lineTo(x+r,y+h); ctx.arc(x+r,y+r,r,Math.PI/2,Math.PI*1.5);
+    ctx.closePath(); ctx.fill(); ctx.fillStyle='#000'; ctx.font='13px system-ui'; ctx.fillText(label,x+8,y+4);
+  }
+  function drawLeader(x1,y1,x2,y2,color){
+    ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  }
+  function drawPickMarker(x,y,color,label){
+    ctx.strokeStyle=color; ctx.fillStyle=color;
+    ctx.beginPath(); ctx.moveTo(x,y-16); ctx.lineTo(x,y-2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x,y-2); ctx.lineTo(x-6,y-10); ctx.moveTo(x,y-2); ctx.lineTo(x+6,y-10); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label,x+6,y-18);
+  }
+  function drawFlag(x,y,color){
+    ctx.save();
+    ctx.translate(x,y-20);
+    ctx.fillStyle=color; ctx.strokeStyle=color;
+    ctx.beginPath();
+    ctx.moveTo(0,0); ctx.lineTo(0,-14); ctx.lineTo(10,-10); ctx.lineTo(0,-6); ctx.closePath();
+    ctx.fill();
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,10); ctx.stroke();
+    ctx.restore();
+  }
+
+  function wireOnce(){
+    var addBtn = el('addBtn'); if(addBtn && !addBtn.dataset.bound){ addBtn.dataset.bound='1'; addBtn.addEventListener('click', addItem); }
+    var clearBtn = el('clearBtn'); if(clearBtn && !clearBtn.dataset.bound){ clearBtn.dataset.bound='1'; clearBtn.addEventListener('click', resetAll); }
+    var removeBtn = el('removeLastBtn'); if(removeBtn && !removeBtn.dataset.bound){ removeBtn.dataset.bound='1'; removeBtn.addEventListener('click', removeLast); }
+    var computeBtn = el('computeBtn'); if(computeBtn && !computeBtn.dataset.bound){ computeBtn.dataset.bound='1'; computeBtn.addEventListener('click', computeAndDraw); }
+    var downloadBtn = el('downloadBtn'); if(downloadBtn && !downloadBtn.dataset.bound){
+      downloadBtn.dataset.bound='1';
+      downloadBtn.addEventListener('click', function(){
+        var a=document.createElement('a'); var ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+        a.download=ts+'_rigging.png'; a.href=el('sheet').toDataURL('image/png'); a.click();
+      });
+    }
+  }
+
+  window.addEventListener('load', function(){
+    // Wire handles
+    pickModeEl=el('pickMode'); pickSpacingEl=el('pickSpacing'); pickAxesEl=el('pickAxes');
+    basketSpreadEl=el('basketSpread'); rollThreshEl=el('rollThresh'); jointLimitEl=el('jointLimit');
+    itemTypeEl=el('itemType'); orientEl=el('orient'); lenRow=el('lenRow'); wpiEl=el('wpi'); wpiLabel=el('wpiLabel'); lenInEl=el('lenIn'); fixedRow=el('fixedRow'); fixedWEl=el('fixedW'); fixedLEl=el('fixedL');
+    single90Row=el('single90Row'); s90_beforeEl=el('s90_before'); s90_afterEl=el('s90_after'); s90_vtypeEl=el('s90_vtype');
+    itemsDiv=el('items'); summaryDiv=el('summary'); sheet=el('sheet'); debugDiv=el('debug');
+    ctx=setupCanvas(sheet);
+
+    // Disable pick spacing when 4-point is selected
+    function updatePickSpacingEnabled(){
+      var is4 = (pickModeEl.value==='4');
+      pickSpacingEl.disabled = is4;
+      pickSpacingEl.title = is4 ? 'Ignored in 4-point (auto spacing by joint-limit rule)' : '';
+    }
+    pickModeEl.addEventListener('change', function(){ updatePickSpacingEnabled(); });
+    updatePickSpacingEnabled();
+
+    // Show/hide detail rows by item type
+    itemTypeEl.addEventListener('change', updateDetailRows);
+    updateDetailRows();
+
+    // Bind buttons once
+    wireOnce();
+
+    // Initial debug
+    if(debugDiv) debugDiv.textContent = 'debug: ready (v10.2)';
+  });
+}
+</script>
+
+<!-- ===== 4-Point Pick Solver (Left/Right panels) ===== -->
+<div id="solver4p" style="margin:16px; padding:12px; border:1px solid #dde3ef; border-radius:10px; background:#f8fafc">
+  <h2 style="margin:6px 0">4-Point Pick — Level-First Rail Equalizer</h2>
+  <div style="color:#566; margin-bottom:8px">
+    Visual split by <b>Left Choker</b> and <b>Right Choker</b>. Load current CG/extents from v10, set spreads/margins, then Solve.
+  </div>
+  <div style="display:grid; grid-template-columns:320px 1fr; gap:14px">
+    <div>
+      <div style="margin-bottom:8px">
+        <button id="btnLoadFromV10" style="padding:8px 12px; border-radius:8px; border:1px solid #9db7ff; background:#e9f0ff">Load from v10</button>
+        <button id="btnSolve4P" style="padding:8px 12px; border-radius:8px; border:1px solid #9db7ff; background:#eef7ff">Solve</button>
+        <button id="btnCopy4P" style="padding:8px 12px; border-radius:8px; border:1px solid #bcccdc; background:#f6f8fb">Copy Points</button>
+      </div>
+      <div>Rail offset d<sub>x</sub> (ft): <input id="dx4" type="number" step="0.1" value="6" style="width:90px"></div>
+      <div>Spread s<sub>x</sub> (ft): <input id="sx4" type="number" step="0.1" value="3" style="width:90px"></div>
+      <div>Spread s<sub>y</sub> (ft): <input id="sy4" type="number" step="0.1" value="0.8" style="width:90px"></div>
+      <div>Spread s<sub>z</sub> (ft): <input id="sz4" type="number" step="0.1" value="0.6" style="width:90px"></div>
+      <div>Edge margin (ft): <input id="mg4" type="number" step="0.1" value="0.5" style="width:90px"></div>
+      <label style="display:inline-block; margin-top:6px"><input id="cross4" type="checkbox"> Visual: cross rails</label>
+      <pre id="out4p" style="margin-top:10px; background:#0b0e16; color:#e7efff; padding:10px; border-radius:8px; overflow:auto; max-height:220px"></pre>
+    </div>
+    <div>
+      <canvas id="cv4p" width="980" height="520" style="background:#0a0d13; border:1px solid #dbe2f2; border-radius:12px"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+  function feet(vInches){return vInches/12.0;}
+  function mapPair(min,max){return {min:min,max:max,span:(max-min), mid:(min+max)/2};}
+
+  function getInputs(){
+    var dx=parseFloat(document.getElementById('dx4').value)||0;
+    var sx=parseFloat(document.getElementById('sx4').value)||0;
+    var sy=parseFloat(document.getElementById('sy4').value)||0;
+    var sz=parseFloat(document.getElementById('sz4').value)||0;
+    var mg=parseFloat(document.getElementById('mg4').value)||0;
+    var cross=document.getElementById('cross4').checked;
+    return {dx,sx,sy,sz,mg,cross};
+  }
+
+  function loadFromV10(){
+    if(!window.v10Last){ alert('Run “Compute + Draw” in v10 first.'); return; }
+    var cgI=window.v10Last.cg; var ex=window.v10Last.ext;
+    var X=mapPair(ex.X.min, ex.X.max), Y=mapPair(ex.Y.min, ex.Y.max), Z=mapPair(ex.Z.min, ex.Z.max);
+    window._dims4 = { Lx: feet(X.span), Ly: feet(Y.span), Lz: feet(Z.span) };
+    window._cg4   = { x: feet(cgI.X - X.mid), y: feet(cgI.Y - Y.mid), z: feet(cgI.Z - Z.mid) };
+    solve4();
+  }
+
+  function solve4(){
+    if(!window._dims4 || !window._cg4){ return; }
+    var p=getInputs();
+    var Lx=_dims4.Lx, Ly=_dims4.Ly, Lz=_dims4.Lz;
+    var cg=JSON.parse(JSON.stringify(_cg4));
+
+    var xMin=-Lx/2+p.mg, xMax=Lx/2-p.mg;
+    var yMin=-Ly/2+p.mg, yMax=Ly/2-p.mg;
+    var zMin=-Lz/2+p.mg, zMax=Lz/2-p.mg;
+    cg.x=clamp(cg.x,xMin,xMax); cg.y=clamp(cg.y,yMin,yMax); cg.z=clamp(cg.z,zMin,zMax);
+
+    var dxMax=Math.min(cg.x-xMin, xMax-cg.x); dxMax=Math.max(0,dxMax);
+    var useDx=clamp(p.dx,0,dxMax);
+    var ML={x:cg.x-useDx,y:cg.y,z:cg.z}, MR={x:cg.x+useDx,y:cg.y,z:cg.z};
+
+    function cap(P){ return { x:clamp(P.x,xMin,xMax), y:clamp(P.y,yMin,yMax), z:clamp(P.z,zMin,zMax) }; }
+    var L1=cap({x:ML.x-p.sx, y:ML.y+p.sy, z:ML.z+p.sz});
+    var L2=cap({x:ML.x+p.sx, y:ML.y-p.sy, z:ML.z-p.sz});
+    var R1=cap({x:MR.x-p.sx, y:MR.y-p.sy, z:MR.z+p.sz});
+    var R2=cap({x:MR.x+p.sx, y:MR.y+p.sy, z:MR.z-p.sz});
+
+    window._solution4 = {L1,L2,R1,R2,ML,MR,cg, dims:{Lx,Ly,Lz}, cross:p.cross, mg:p.mg, spreads:{sx:p.sx,sy:p.sy,sz:p.sz}, dx:useDx};
+    draw4();
+    dump4();
+  }
+
+  function dump4(){
+    var s=window._solution4; if(!s){out4p.textContent=''; return;}
+    function f(v){return Math.abs(v)<1e-6?'0.00':v.toFixed(2);}
+    var lines=[];
+    lines.push('Dims (ft): Lx='+f(s.dims.Lx)+' Ly='+f(s.dims.Ly)+' Lz='+f(s.dims.Lz));
+    lines.push('CG (ft):   ('+f(s.cg.x)+', '+f(s.cg.y)+', '+f(s.cg.z)+')');
+    lines.push('Means ML/MR: ('+f(s.ML.x)+','+f(s.ML.y)+','+f(s.ML.z)+')  ('+f(s.MR.x)+','+f(s.MR.y)+','+f(s.MR.z)+')');
+    lines.push('d_x='+f(s.dx)+'  spreads: s_x='+f(s.spreads.sx)+' s_y='+f(s.spreads.sy)+' s_z='+f(s.spreads.sz)+'  margin='+f(s.mg));
+    lines.push('Pick points (ft):');
+    lines.push('  L1 = ('+f(s.L1.x)+', '+f(s.L1.y)+', '+f(s.L1.z)+')');
+    lines.push('  L2 = ('+f(s.L2.x)+', '+f(s.L2.y)+', '+f(s.L2.z)+')');
+    lines.push('  R1 = ('+f(s.R1.x)+', '+f(s.R1.y)+', '+f(s.R1.z)+')');
+    lines.push('  R2 = ('+f(s.R2.x)+', '+f(s.R2.y)+', '+f(s.R2.z)+')');
+    out4p.textContent = lines.join('\n');
+  }
+
+  // Split canvas: Left/Right panels
+  function draw4(){
+    var s=window._solution4; if(!s) return;
+    var cv=document.getElementById('cv4p'), ctx=cv.getContext('2d');
+    var W=cv.width, H=cv.height; ctx.clearRect(0,0,W,H);
+    var pad=30, vw=(W-3*pad)/2, vh=H-2*pad;
+    var left={x:pad,y:pad,w:vw,h:vh}, right={x:pad*2+vw,y:pad,w:vw,h:vh};
+    var Lx=s.dims.Lx, Ly=s.dims.Ly, Lz=s.dims.Lz;
+
+    function mXY(x,y,b){var sx=b.x+((x+Lx/2)/Lx)*b.w; var sy=b.y+b.h-((y+Ly/2)/Ly)*b.h; return [sx,sy];}
+    function mXZ(x,z,b){var sx=b.x+((x+Lx/2)/Lx)*b.w; var sz=b.y+b.h-((z+Lz/2)/Lz)*b.h; return [sx,sz];}
+
+    function header(b,text){
+      ctx.fillStyle='#cfe2ff'; ctx.fillRect(b.x,b.y-24,b.w,20);
+      ctx.fillStyle='#0b3055'; ctx.font='14px system-ui'; ctx.fillText(text, b.x+8, b.y-22);
+    }
+
+    ctx.strokeStyle='#bcd'; ctx.lineWidth=1.5; ctx.strokeRect(left.x,left.y,left.w,left.h);
+    ctx.strokeStyle='#bcd'; ctx.lineWidth=1.5; ctx.strokeRect(right.x,right.y,right.w,right.h);
+    header(left,'Left Choker (L1–L2) — XY & XZ overlays');
+    header(right,'Right Choker (R1–R2) — XY & XZ overlays');
+
+    function segXY(A,B,c,box){var a=mXY(A.x,A.y,box), b=mXY(B.x,B.y,box); ctx.strokeStyle=c; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();}
+    function segXZ(A,B,c,box){var a=mXZ(A.x,A.z,box), b=mXZ(B.x,B.z,box); ctx.strokeStyle=c; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();}
+    function dotXY(P,c,t,box){var a=mXY(P.x,P.y,box); ctx.fillStyle=c; ctx.beginPath(); ctx.arc(a[0],a[1],5,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#234'; ctx.fillText(t,a[0]+6,a[1]-6);}
+    function dotXZ(P,c,t,box){var a=mXZ(P.x,P.z,box); ctx.fillStyle=c; ctx.beginPath(); ctx.arc(a[0],a[1],5,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#234'; ctx.fillText(t,a[0]+6,a[1]-6);}
+
+    var colL='#ff6363', colR='#ff6bf2', colCG='#10a37f', colBlue='#008cff', colCr='#e3b200';
+
+    segXY(s.L1,s.L2,colL,left); segXZ(s.L1,s.L2,colL,left);
+    dotXY(s.cg,colCG,'CG',left); dotXY(s.ML,'#ffa0a0','ML',left);
+    dotXY(s.L1,colL,'L1',left); dotXY(s.L2,colL,'L2',left);
+
+    ctx.setLineDash([6,6]); ctx.strokeStyle=colCr; ctx.lineWidth=2;
+    var a1=mXY(s.cg.x,-Ly/2,left), b1=mXY(s.cg.x,Ly/2,left);
+    ctx.beginPath(); ctx.moveTo(a1[0],a1[1]); ctx.lineTo(b1[0],b1[1]); ctx.stroke();
+    var a2=mXZ(s.cg.x,-Lz/2,left), b2=mXZ(s.cg.x,Lz/2,left);
+    ctx.beginPath(); ctx.moveTo(a2[0],a2[1]); ctx.lineTo(b2[0],b2[1]); ctx.stroke();
+    ctx.setLineDash([]);
+
+    segXY(s.R1,s.R2,colR,right); segXZ(s.R1,s.R2,colR,right);
+    dotXY(s.cg,colCG,'CG',right); dotXY(s.MR,'#ffb0ff','MR',right);
+    dotXY(s.R1,colR,'R1',right); dotXY(s.R2,colR,'R2',right);
+    ctx.setLineDash([6,6]); ctx.strokeStyle=colCr; ctx.lineWidth=2;
+    var a3=mXY(s.cg.x,-Ly/2,right), b3=mXY(s.cg.x,Ly/2,right);
+    ctx.beginPath(); ctx.moveTo(a3[0],a3[1]); ctx.lineTo(b3[0],b3[1]); ctx.stroke();
+    var a4=mXZ(s.cg.x,-Lz/2,right), b4=mXZ(s.cg.x,Lz/2,right);
+    ctx.beginPath(); ctx.moveTo(a4[0],a4[1]); ctx.lineTo(b4[0],b4[1]); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // equalizer lines (indicative)
+    var hook=[(a3[0]+b3[0])/2, a3[1]-40];
+    var mL=mXZ(s.ML.x,s.ML.z,right), mR=mXZ(s.MR.x,s.MR.z,right);
+    ctx.strokeStyle=colBlue; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(hook[0],hook[1]); ctx.lineTo(mL[0],mL[1]); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(hook[0],hook[1]); ctx.lineTo(mR[0],mR[1]); ctx.stroke();
+  }
+
+  document.getElementById('btnLoadFromV10').addEventListener('click', loadFromV10);
+  document.getElementById('btnSolve4P').addEventListener('click', solve4);
+  document.getElementById('btnCopy4P').addEventListener('click', function(){
+    if(!window._solution4){ return; }
+    navigator.clipboard.writeText(out4p.textContent).then(function(){ alert('Pick points copied.'); });
+  });
+})();
+</script>
+</body>
+</html>
