@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Toolbox • Calculators by Joshua</title>
+  <meta name="description" content="Landing page linking to rigging calculators and tools." />
+  <meta property="og:title" content="Calculators Toolbox" />
+  <meta property="og:description" content="Quick links to rigging calculators." />
+  <meta property="og:type" content="website" />
+  <meta name="theme-color" content="#111827" />
+  <style>
+    body { font-family: system-ui, sans-serif; background:#0b1020; color:#f3f4f6; margin:0; }
+    .wrap{max-width:800px;margin:0 auto;padding:32px 20px}
+    h1{font-size:28px;margin:0 0 4px}
+    .muted{color:#9ca3af}
+    .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));margin-top:24px}
+    .card{background:#111827;padding:16px;border-radius:12px;border:1px solid #334155}
+    .card h3{margin:0 0 6px}
+    .card p{margin:0 0 10px;color:#9ca3af}
+    .card a{display:inline-block;padding:8px 14px;border-radius:8px;text-decoration:none;font-weight:600;color:#fff;background:#2563eb}
+    .footer{margin-top:30px;color:#9ca3af;font-size:14px;text-align:center}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Calculators Toolbox</h1>
+    <div class="muted">Quick links to rigging calculators.</div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Complex Rigging Calculator</h3>
+        <p>Advanced rigging calculations for multi‑axis picks.</p>
+        <a href="complex_rigging_calculator.html">Open</a>
+      </div>
+      <div class="card">
+        <h3>Simple Rigging Calculator</h3>
+        <p>Lightweight rigging helper with basic options.</p>
+        <a href="simple_rigging_calculator.html">Open</a>
+      </div>
+    </div>
+
+    <div class="footer">Built by Joshua • <span id="year"></span></div>
+  </div>
+  <script>document.getElementById('year').textContent=new Date().getFullYear();</script>
+</body>
+</html>
