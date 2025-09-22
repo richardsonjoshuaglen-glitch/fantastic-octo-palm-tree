@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Complex COG Rigging Calculator — v10.6 + 20′ Basket Split</title>
+<title>Complex COG Rigging Calculator — v10.6 + 20′ Basket Split (fixed)</title>
 <style>
   :root{
     --bg:#ffffff; --ink:#111; --panel:#f8f9fa; --border:#e9ecef; --accent:#0d6efd;
@@ -37,20 +37,16 @@
   #debug { margin-top:6px; font-size:12px; color:#b00020; white-space:pre-wrap; border:1px dashed #ddd; padding:6px; border-radius:6px;}
   .axis-key { font-size:12px; background:#f6f8fa; border:1px solid #e0e0e0; border-radius:8px; padding:8px; line-height:1.35; }
   .axis-key strong{display:inline-block; width:2.4em;}
+  .grid-two { display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace; font-size:13px; }
 </style>
 </head>
 <body>
-<h1>Rigging CG Helper — v10.6 <span class="badge" id="badge">JS not ready</span></h1>
+<h1>Rigging CG Helper — v10.6 <span class="badge" id="badge">JS Loaded (fixed)</span></h1>
 
 <fieldset>
-  <legend>Pick setup</legend>
+  <legend>Pick setup (locked to 4-point)</legend>
   <div class="row3">
-    <label>Pick mode
-      <select id="pickMode" disabled>
-        <option value="4" selected>4-point (two chokers)</option>
-      </select>
-      <div class="hint">Locked to 4-point. Original pick math unchanged.</div>
-    </label>
     <label>Pick axes
       <select id="pickAxes">
         <option value="AUTO" selected>Auto</option>
@@ -58,17 +54,18 @@
         <option value="XZ">X & Z</option>
         <option value="YZ">Y & Z</option>
       </select>
+      <div class="hint">Auto chooses two largest spans. Use explicit axes to force orientation.</div>
     </label>
     <div class="axis-key">
       <div><strong>X+</strong> left → right</div>
       <div><strong>Y+</strong> toward you &nbsp;&nbsp; <strong>Y−</strong> away from you</div>
       <div><strong>Z+</strong> up &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>Z−</strong> down</div>
     </div>
+    <label class="inline" style="align-items:center; gap:8px;">
+      <input id="togglePrevCoupling" type="checkbox"> Distances from previous coupling
+    </label>
   </div>
-  <label class="inline" style="align-items:center; gap:8px; margin-top:8px;">
-    <input id="togglePrevCoupling" type="checkbox"> Distances from previous coupling
-  </label>
-  <div class="muted">New output below gives **two numbers per side that add to 20′** for the basketed choker (ignoring shackles/wrap). First number corresponds to the **first axis** you selected.</div>
+  <div class="muted">New output below produces a single combined panel: pick points + 20′ basket split per side. First number corresponds to axis <b>0</b> (the primary pick axis).</div>
 </fieldset>
 
 <fieldset>
@@ -87,7 +84,7 @@
         <option value="Y">Custom fixed</option>
       </select>
     </label>
-    <label>Orientation (layman directions)
+    <label>Orientation
       <select id="orient">
         <option value="Xp" selected>Right (X+)</option>
         <option value="Xm">Left (X−)</option>
@@ -143,7 +140,7 @@
 <button class="btn secondary" id="downloadBtn" type="button" disabled>Download PNG</button>
 
 <fieldset>
-  <legend>Output (quick)</legend>
+  <legend>Output (combined)</legend>
   <div id="summary" class="out">Add items and click “Compute + Draw”.</div>
   <div class="muted">Legend: <span class="pill left">Left</span> <span class="pill right">Right</span> <span class="pill roll">Roll</span></div>
 </fieldset>
@@ -155,10 +152,12 @@
 </fieldset>
 
 <script>
-(function(){ var b=document.getElementById('badge'); if(b) b.textContent='JS Loaded v10.6'; })();
+/* Nerd GPT: deterministic, minimal, precise. Fixes 20' split discrepancy by forcing sum=240" and shows picks with leg lengths. */
 
-if(!window.__rig_v10_wired){
-  window.__rig_v10_wired = true;
+(function(){ var b=document.getElementById('badge'); if(b) b.textContent='JS Loaded v10.6 (fixed)'; })();
+
+if(!window.__rig_v10_wired_fixed){
+  window.__rig_v10_wired_fixed = true;
 
   /* Canvas / HiDPI */
   function setupCanvas(canvas, cssW, cssH) {
@@ -181,10 +180,9 @@ if(!window.__rig_v10_wired){
   var W_COUP=115.0;
   var W_VALVE_BODY=451.0, L_VALVE_STD=12.0;
   var W_TEE_BODY=477.0, L_TEE=20.0;
-  var DEFAULT_PICK_SPACING=72.0; // kept for completeness
+  var DEFAULT_PICK_SPACING=72.0;
   var COUP_EXCLUDE_HALF=0.5;
 
-  /* Colors */
   var COLORS = {
     axisX:'#d12222', axisY:'#2a9d2a', axisZ:'#1f6feb',
     P:'#666666', E:'#2aa198', F:'#2aa198',
@@ -198,24 +196,22 @@ if(!window.__rig_v10_wired){
     anchor:(getComputedStyle(document.documentElement).getPropertyValue('--anchor') || '#94a3b8').trim()
   };
 
-  /* Helpers */
   var ORIENTS={ Xp:[1,0,0], Xm:[-1,0,0], Yp:[0,1,0], Ym:[0,-1,0], Zp:[0,0,1], Zm:[0,0,-1] };
-  function r4(x){return Math.round(x*4)/4;}
-  function roundHalf(x){return Math.round(x*2)/2;}
+  function roundHalf(x){ return Math.round(x*2)/2; }
   function fmtFtIn(x){
-    var v=roundHalf(x); var ft=Math.floor(v/12); var rem=v-ft*12;
-    var whole=Math.floor(rem); var frac=rem - whole;
+    var v=roundHalf(x);
+    var ft=Math.floor(v/12);
+    var rem=v-ft*12;
+    var whole=Math.floor(rem);
+    var frac=rem - whole;
     var fracStr = (Math.abs(frac) < 1e-6) ? '' : (Math.abs(frac-0.5)<1e-6 ? '-1/2' : '' );
     var inch = whole + (fracStr||'') + '"';
     return ft? (ft+"' "+inch) : inch;
   }
-  function vEq(a,b){return a[0]===b[0]&&a[1]===b[1]&&a[2]===b[2];}
-  function axisFromDir(d){ return Math.abs(d[0])? 'X' : (Math.abs(d[1])? 'Y' : 'Z'); }
+  function fmtInches(x){ return (Math.round(x*10)/10).toFixed(1) + '"'; }
+  function vEq(a,b){ return a[0]===b[0]&&a[1]===b[1]&&a[2]===b[2]; }
 
-  /* State */
   var items=[], segments=[], marks=[];
-  var _forbidden = { X:[], Y:[], Z:[] };
-  var _nudges=[];
   var ctx, sheet, summaryDiv, itemsDiv, debugDiv;
   var pickAxesEl, togglePrevCouplingEl;
   var itemTypeEl, orientEl, lenRow, wpiEl, wpiLabel, lenInEl, fixedRow, fixedWEl, fixedLEl;
@@ -237,7 +233,7 @@ if(!window.__rig_v10_wired){
   }
 
   function resetAll(){
-    items=[]; segments=[]; marks=[]; _forbidden={X:[],Y:[],Z:[]}; _nudges=[];
+    items=[]; segments=[]; marks=[];
     itemsDiv.innerHTML=''; summaryDiv.innerHTML='';
     ctx && ctx.clearRect(0,0,sheet.width,sheet.height);
     debugDiv.textContent='debug: reset';
@@ -247,7 +243,6 @@ if(!window.__rig_v10_wired){
     items.pop(); rebuildGeometry(); redrawDebug();
   }
 
-  /* Geometry builders (preserves your existing straight-run approach) */
   function getCurrentEnd(){ return segments.length===0?[0,0,0]:segments[segments.length-1].end.slice(); }
   function pushSegment(tCode,dir,L,labelIdx,drawCode,countJoint){
     var start=getCurrentEnd(); var end=[ start[0]+dir[0]*L, start[1]+dir[1]*L, start[2]+dir[2]*L ];
@@ -260,6 +255,7 @@ if(!window.__rig_v10_wired){
   function itemWeightText(idx, label, L, W){
     return idx+'. '+label+' L='+L.toFixed(1)+' in, W='+W.toFixed(1)+' lb';
   }
+
   function addItem(){
     try{
       var t=itemTypeEl.value; var idx=items.length+1;
@@ -306,12 +302,12 @@ if(!window.__rig_v10_wired){
     return {min:min,max:max,span:(max-min)};
   }
 
-  /* ========== Compute + Draw (unchanged pick math) + NEW choker split section ========== */
+  /* Compute + Draw with fixed 20' split algorithm */
   function computeAndDraw(){
     if(items.length===0){ alert('Add at least one item.'); return; }
 
     var pickAxesSel=pickAxesEl.value;
-    // Weighted CG at segment mids (as before)
+    // Weighted CG at segment mids
     var totalW=0, sumX=0, sumY=0, sumZ=0;
     for(var i=0;i<items.length;i++){
       var it=items[i];
@@ -342,7 +338,7 @@ if(!window.__rig_v10_wired){
     var setA = balancedPoints(axes[0]); // axis A picks [L,R]
     var setB = balancedPoints(axes[1]); // axis B picks [L,R]
 
-    /* ---------- NEW: 20′ basket split per side ---------- */
+    /* New robust 20' split: compute proportion then force sum to 240" with first leg rounded to 0.5" and second = 240 - first */
     function d3(p,q){ var dx=p[0]-q[0], dy=p[1]-q[1], dz=p[2]-q[2]; return Math.sqrt(dx*dx+dy*dy+dz*dz); }
     function pointOnAxis(axis,val){ return (axis==='X')?[val,0,0]:(axis==='Y')?[0,val,0]:[0,0,val]; }
     function bight(side){ // side 0 = Left, 1 = Right
@@ -351,45 +347,65 @@ if(!window.__rig_v10_wired){
       if(axes[1]==='X') p[0]=side?setB.right:setB.left; if(axes[1]==='Y') p[1]=side?setB.right:setB.left; if(axes[1]==='Z') p[2]=side?setB.right:setB.left;
       return p;
     }
-    function split20(side){
+    function split20_deterministic(side){
       var pick1 = side? setA.right : setA.left;
       var pick2 = side? setB.right : setB.left;
       var BL = bight(side);
       var CL1 = pointOnAxis(axes[0], pick1);
       var CL2 = pointOnAxis(axes[1], pick2);
       var r1 = d3(BL, CL1), r2 = d3(BL, CL2);
-      var sum = r1 + r2; if(sum<=0) return {a:0,b:0,sum:0};
-      var a = 240 * (r1/sum), b = 240 * (r2/sum);
+      var sum = r1 + r2; if(sum<=0) return {a:0,b:240,sum:240,pick1:pick1,pick2:pick2};
+      // raw proportional lengths (inches): a_raw ~ proportion toward axis0, b_raw axis1
+      var a_raw = 240 * (r1 / sum);
+      // deterministic rounding: round first leg to nearest 0.5", then force second leg = 240 - first
+      var a = roundHalf(a_raw);
+      var b = 240 - a;
+      // ensure numeric stability (both multiples of 0.5)
       a = roundHalf(a); b = roundHalf(b);
-      return {a:a, b:b, sum:roundHalf(a+b)};
+      return {a:a, b:b, sum:roundHalf(a+b), pick1:pick1, pick2:pick2, r1:r1, r2:r2};
     }
-    var leftPair  = split20(0);
-    var rightPair = split20(1);
 
-    /* ---------- Existing Output + New Section ---------- */
-    function fmtInches(x){ return (Math.round(x*10)/10).toFixed(1) + '"'; }
-    var html='';
+    var leftPair  = split20_deterministic(0);
+    var rightPair = split20_deterministic(1);
+
+    /* Output combined: picks + leg lengths side-by-side */
+    var html = '';
     html += '<h3>Rigging Summary</h3><ul>';
     html += '<li>Total weight: <b>'+totalW.toFixed(1)+' lb</b></li>';
     html += '<li>CG (true 3D): X=<b>'+cg[0].toFixed(2)+' in</b>, Y=<b>'+cg[1].toFixed(2)+' in</b>, Z=<b>'+cg[2].toFixed(2)+' in</b></li>';
     html += '</ul>';
 
-    html += '<h3>Chokers (pick points)</h3><ul>';
-    html += '<li><span class="pill left">Left</span> '+axes[0]+': '+fmtInches(setA.left - ext[axes[0]].min)+' &nbsp;•&nbsp; '+axes[1]+': '+fmtInches(setB.left - ext[axes[1]].min)+'</li>';
-    html += '<li><span class="pill right">Right</span> '+axes[0]+': '+fmtInches(setA.right - ext[axes[0]].min)+' &nbsp;•&nbsp; '+axes[1]+': '+fmtInches(setB.right - ext[axes[1]].min)+'</li>';
-    html += '</ul>';
+    html += '<h3>Chokers & 20′ Basket — Combined</h3>';
+    html += '<div class="grid-two mono">';
 
-    // NEW: 20′ basket choker splits (simple pair, sums to 20′)
-    function pairLine(sideName, p){
-      return '<div><span class="pill '+(sideName==='Left'?'left':'right')+'">'+sideName+'</span> '
-        + fmtFtIn(p.a) + ' + ' + fmtFtIn(p.b) + ' = 20′ <span class="muted">(first number → '+axes[0]+' pick)</span></div>';
+    function pickDisplay(sideName, pair, setA_local, setB_local, axisA, axisB){
+      // pick coordinates: absolute value and distance from axis min
+      var p1 = pair.pick1;
+      var p2 = pair.pick2;
+      // For axis-specific coordinate values:
+      var pA = (axisA==='X')? p1 : (axisA==='Y')? p1 : p1;
+      var pB = (axisB==='X')? p2 : (axisB==='Y')? p2 : p2;
+      // But pair.pick1/pick2 are scalar values already (we passed pick points as scalars)
+      var coordA = pair.pick1;
+      var coordB = pair.pick2;
+      var distA = coordA - setA_local.ex.min;
+      var distB = coordB - setB_local.ex.min;
+      var line = '';
+      line += '<div><span class="pill '+(sideName==='Left'?'left':'right')+'">'+sideName+'</span> &nbsp; <strong>Picks:</strong> ';
+      line += axisA+': <code>'+coordA.toFixed(2)+' in</code> (from min: '+fmtInches(distA)+') &nbsp;•&nbsp; ';
+      line += axisB+': <code>'+coordB.toFixed(2)+' in</code> (from min: '+fmtInches(distB)+')';
+      line += '<br><strong>20′ Basket split:</strong> Axis-'+axisA+' leg = <code>'+fmtFtIn(pair.a)+'</code>  +  Axis-'+axisB+' leg = <code>'+fmtFtIn(pair.b)+'</code>  = <code>20′</code>';
+      line += '</div>';
+      return line;
     }
-    html += '<h3>20′ Basket Choker — Leg Lengths</h3>';
-    html += pairLine('Left', leftPair);
-    html += pairLine('Right', rightPair);
 
-    // Roll info (same calculation as before, FYI)
-    var PIPE_R_IN = 12; // 24" OD by default for roll calc
+    html += '<div>' + pickDisplay('Left', leftPair, setA, setB, axes[0], axes[1]) + '</div>';
+    html += '<div>' + pickDisplay('Right', rightPair, setA, setB, axes[0], axes[1]) + '</div>';
+
+    html += '</div>'; // grid-two
+
+    // Roll information (unchanged)
+    var PIPE_R_IN = 12;
     var roll_deg = (PIPE_R_IN>0)? (Math.asin(Math.max(-1,Math.min(1, cg[1]/PIPE_R_IN)))*180/Math.PI) : 0;
     var roll_side=cg[1]>0?'toward +Y':(cg[1]<0?'toward -Y':'no roll needed');
     var arc_in=PIPE_R_IN*(Math.abs(roll_deg)*Math.PI/180);
@@ -400,13 +416,13 @@ if(!window.__rig_v10_wired){
 
     summaryDiv.innerHTML = html;
 
-    // Draw (centerlines + pick markers)
+    // Draw
     drawSheet([{axis:axes[0],picks:[setA.left,setA.right],ex:ext[axes[0]]},
                {axis:axes[1],picks:[setB.left,setB.right],ex:ext[axes[1]]}]);
-    el('downloadBtn').disabled=true; // drawing only, PNG optional
+    el('downloadBtn').disabled=false;
   }
 
-  /* Drawing */
+  /* Drawing functions (same as prior, minimal changes) */
   function drawSheet(picksets){
     ctx=setupCanvas(sheet, 1000, 1200);
     var W=1000,H=1200,pad=28;
@@ -540,6 +556,8 @@ if(!window.__rig_v10_wired){
         a.download=ts+'_rigging.png'; a.href=el('sheet').toDataURL('image/png'); a.click();
       });
     }
+    // dynamic UI rows
+    itemTypeEl.addEventListener('change', updateDetailRows);
   }
 
   window.addEventListener('load', function(){
@@ -549,7 +567,7 @@ if(!window.__rig_v10_wired){
     single90Row=el('single90Row');
     itemsDiv=el('items'); summaryDiv=el('summary'); sheet=el('sheet'); debugDiv=el('debug');
     setupCanvas(sheet); updateDetailRows(); wireOnce();
-    debugDiv.textContent='debug: ready (v10.6 + 20′ split)';
+    debugDiv.textContent='debug: ready (v10.6 fixed 20′ split)';
   });
 }
 </script>
