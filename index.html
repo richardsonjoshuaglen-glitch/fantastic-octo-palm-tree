@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Toolbox • Calculators by Joshua</title>
+  <meta name="description" content="A clean landing page linking to rigging and pipe calculators and other tools." />
+  <meta property="og:title" content="Calculators Toolbox" />
+  <meta property="og:description" content="Quick links to all my calculators and helpers." />
+  <meta property="og:type" content="website" />
+  <meta name="theme-color" content="#111827" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='24' fill='%23111827'/%3E%3Cpath d='M25 25h70v70H25z' fill='%232256eb'/%3E%3Ccircle cx='45' cy='45' r='6' fill='white'/%3E%3Ccircle cx='60' cy='45' r='6' fill='white'/%3E%3Ccircle cx='75' cy='45' r='6' fill='white'/%3E%3Crect x='39' y='60' width='42' height='22' rx='4' fill='white'/%3E%3C/svg%3E" />
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#111827;
+      --text:#f3f4f6;
+      --muted:#9ca3af;
+      --brand:#2563eb;
+      --brand-2:#06b6d4;
+      --ring:#93c5fd55;
+      --chip:#1f2937;
+      --chip-border:#334155;
+      --good:#22c55e;
+      --warn:#f59e0b;
+    }
+    @media (prefers-color-scheme: light){
+      :root{
+        --bg:#f8fafc;
+        --panel:#ffffff;
+        --text:#0f172a;
+        --muted:#475569;
+        --brand:#1d4ed8;
+        --brand-2:#0891b2;
+        --ring:#60a5fa55;
+        --chip:#f1f5f9;
+        --chip-border:#e2e8f0;
+      }
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      background: radial-gradient(1200px 800px at 10% -10%, #0b1020 20%, transparent 60%),radial-gradient(1200px 800px at 110% 10%, #0b1020 20%, transparent 60%), var(--bg);
+      color:var(--text);
+      line-height:1.5;
+    }
+    .wrap{max-width:1100px;margin:0 auto;padding:32px 20px 100px}
+    header{
+      display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:24px;
+    }
+    .brand{
+      display:flex;gap:14px;align-items:center;
+    }
+    .logo{width:44px;height:44px;border-radius:12px;background:conic-gradient(from 180deg at 50% 50%, var(--brand), var(--brand-2));display:grid;place-items:center;box-shadow:0 10px 30px #0004}
+    .logo svg{filter:drop-shadow(0 6px 10px #0006)}
+    h1{font-size:clamp(22px,2.2vw,30px);margin:0;font-weight:800;letter-spacing:.3px}
+    .muted{color:var(--muted)}
+    .controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    .search{
+      position:relative;min-width:260px;flex:1 1 320px;
+    }
+    .search input{
+      width:100%;padding:12px 42px 12px 40px;border-radius:12px;border:1px solid var(--chip-border);
+      background:var(--panel);color:var(--text);outline:none;
+      box-shadow:0 0 0 0px transparent;
+      transition:box-shadow .15s ease,border-color .15s ease;
+    }
+    .search input:focus{box-shadow:0 0 0 6px var(--ring);border-color:var(--brand)}
+    .search .icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.65}
+    .btn{
+      border:1px solid var(--chip-border);background:var(--panel);color:var(--text);padding:10px 14px;border-radius:12px;cursor:pointer;
+      transition:transform .08s ease, box-shadow .15s ease, border-color .15s ease;
+    }
+    .btn:hover{transform:translateY(-1px)}
+    .btn:focus{outline:none;box-shadow:0 0 0 6px var(--ring);border-color:var(--brand)}
+    .grid{
+      display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+      margin-top:10px;
+    }
+    .card{
+      position:relative;background:linear-gradient(180deg, var(--panel), color-mix(in oklab, var(--panel) 85%, #000 15%));
+      border:1px solid var(--chip-border);border-radius:16px;padding:16px;overflow:hidden;
+      transition:transform .12s ease, box-shadow .2s ease, border-color .15s ease;
+    }
+    .card:hover{transform:translateY(-2px);box-shadow:0 10px 30px #0003;border-color:color-mix(in oklab, var(--brand) 50%, var(--chip-border) 50%)}
+    .card h3{margin:6px 0 6px;font-size:18px;display:flex;align-items:center;gap:8px}
+    .card p{margin:8px 0 12px;color:var(--muted);min-height:40px}
+    .badges{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 12px}
+    .badge{font-size:12px;padding:4px 8px;border-radius:999px;background:var(--chip);border:1px solid var(--chip-border)}
+    .status{font-weight:700}
+    .status.good{color:var(--good)}
+    .status.warn{color:var(--warn)}
+    .card .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .card a.primary{
+      text-decoration:none;background:linear-gradient(90deg, var(--brand), var(--brand-2));color:white;
+      padding:10px 14px;border-radius:10px;font-weight:700;display:inline-flex;align-items:center;gap:8px
+    }
+    .card button.secondary{
+      background:transparent;border:1px dashed var(--chip-border);color:var(--text);padding:10px 12px;border-radius:10px;cursor:pointer
+    }
+    .footer{
+      margin-top:34px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;
+      color:var(--muted);font-size:14px
+    }
+    .tags{display:flex;gap:8px;flex-wrap:wrap}
+    .tag{cursor:pointer} .tag.active{outline:2px solid var(--brand);}
+    .empty{padding:28px;border:1px dashed var(--chip-border);border-radius:14px;text-align:center;color:var(--muted);display:none}
+    .sr-only{position:absolute;left:-9999px}
+    /* Tiny code style */
+    code{background:var(--chip);border:1px solid var(--chip-border);padding:2px 6px;border-radius:6px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 7h16M4 12h16M4 17h10" stroke="white" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <h1>Calculators Toolbox</h1>
+          <div class="muted">Quick links to rigging, pipe, and layout helpers.</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="search">
+          <span class="icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"></circle>
+              <path d="M20 20l-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+            </svg>
+          </span>
+          <label class="sr-only" for="q">Search</label>
+          <input id="q" placeholder="Search calculators, e.g., 'rigging', 'tees', 'elbow 90°'"/>
+        </div>
+        <button id="copyHome" class="btn" title="Copy site link">Copy Link</button>
+      </div>
+    </header>
+
+    <div class="tags" id="tags"></div>
+
+    <div id="empty" class="empty">No matching calculators. Try different keywords or clear filters.</div>
+    <div id="grid" class="grid" role="list"></div>
+
+    <div class="footer">
+      <div>Built by Joshua • <span id="year"></span></div>
+      <div>Host on <code>main</code> or <code>docs</code> via GitHub Pages.</div>
+    </div>
+  </div>
+
+  <script>
+    // === EDIT THIS LIST ===
+    // Add/modify calculators here. href can be a relative path within the repo or an external URL.
+    const CALCULATORS = [
+      {
+        name: "Rigging CG & Pick Planner",
+        desc: "Compute CG, pick points, and generate plan drawings with auto‑axis for 90° elbows & tees.",
+        href: "rigging_cg_helper_v10_mergedworks.html",
+        tags: ["rigging","pipe","cg","planner"],
+        status: "stable" // stable | beta | draft
+      },
+      {
+        name: "Pipe Layout Quick Helper",
+        desc: "Fast inches‑from‑min and coupling‑to‑coupling distances with toggleable references.",
+        href: "pipe_layout_helper.html",
+        tags: ["pipe","layout","distances"],
+        status: "beta"
+      },
+      {
+        name: "Basket Spread Calculator",
+        desc: "Legacy tool (spread per side removed). Use only for archive comparisons.",
+        href: "basket_spread_legacy.html",
+        tags: ["legacy","rigging"],
+        status: "deprecated"
+      },
+      // Add more entries as needed...
+    ];
+
+    // Optional: Tag order (leave empty to auto-generate from CALCULATORS)
+    const PREFERRED_TAGS = ["rigging","pipe","layout","cg","planner","legacy"];
+
+    // --- Render helpers ---
+    const $ = (q)=>document.querySelector(q);
+    const grid = $("#grid");
+    const empty = $("#empty");
+    const tagBar = $("#tags");
+    const q = $("#q");
+    const year = $("#year");
+    year.textContent = new Date().getFullYear();
+
+    function statusBadge(s){
+      if(!s) return "";
+      const map = {stable:"good", beta:"warn", draft:"warn", deprecated:""};
+      const cls = map[s] || "";
+      const label = s[0].toUpperCase()+s.slice(1);
+      return `<span class="badge status ${cls}">${label}</span>`;
+    }
+
+    function cardHTML(item){
+      const tagBadges = item.tags?.map(t=>`<span class="badge">${t}</span>`).join("") || "";
+      return `<article class="card" role="listitem">
+        <h3>${item.name}</h3>
+        <div class="badges">${statusBadge(item.status)}${tagBadges}</div>
+        <p>${item.desc||""}</p>
+        <div class="actions">
+          <a class="primary" href="${item.href}" target="_blank" rel="noopener">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M7 17L17 7M11 7h6v6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Open
+          </a>
+          <button class="secondary" data-copy="${new URL(item.href, location).href}">Copy link</button>
+        </div>
+      </article>`;
+    }
+
+    function uniqueTags(){
+      const all = new Set();
+      CALCULATORS.forEach(c => (c.tags||[]).forEach(t=>all.add(t)));
+      return Array.from(all);
+    }
+
+    // Build tags
+    const tags = PREFERRED_TAGS.length ? PREFERRED_TAGS : uniqueTags();
+    let activeTag = null;
+    function renderTags(){
+      tagBar.innerHTML = tags.map(t => `<span class="badge tag${activeTag===t?' active':''}" data-tag="${t}">#${t}</span>`).join("");
+    }
+
+    function render(){
+      const term = q.value.trim().toLowerCase();
+      const items = CALCULATORS.filter(c => {
+        const inTag = !activeTag || (c.tags||[]).includes(activeTag);
+        const inText = !term || [c.name, c.desc, ...(c.tags||[])].join(" ").toLowerCase().includes(term);
+        return inTag && inText;
+      });
+      grid.innerHTML = items.map(cardHTML).join("");
+      empty.style.display = items.length ? "none" : "block";
+      // wire copy buttons
+      grid.querySelectorAll("button.secondary").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const text = btn.getAttribute("data-copy");
+          navigator.clipboard.writeText(text).then(()=>{
+            const original = btn.textContent;
+            btn.textContent = "Copied!";
+            setTimeout(()=>btn.textContent = original, 1200);
+          });
+        });
+      });
+    }
+
+    // Events
+    q.addEventListener("input", render);
+    tagBar.addEventListener("click", e => {
+      const tag = e.target.closest(".tag")?.getAttribute("data-tag");
+      if(!tag) return;
+      activeTag = (activeTag === tag) ? null : tag;
+      renderTags(); render();
+    });
+    $("#copyHome").addEventListener("click", () => {
+      navigator.clipboard.writeText(location.href).then(()=>{
+        const b = $("#copyHome");
+        const original = b.textContent;
+        b.textContent = "Link Copied";
+        setTimeout(()=>b.textContent = original, 1200);
+      });
+    });
+
+    // Init
+    renderTags(); render();
+  </script>
+</body>
+</html>
