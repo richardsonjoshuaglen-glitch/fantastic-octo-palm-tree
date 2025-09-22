@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Complex COG Rigging Calculator</title>
+<title>Complex COG Rigging Calculator — v10.6 + 20′ Basket Split</title>
 <style>
   :root{
     --bg:#ffffff; --ink:#111; --panel:#f8f9fa; --border:#e9ecef; --accent:#0d6efd;
@@ -37,13 +37,10 @@
   #debug { margin-top:6px; font-size:12px; color:#b00020; white-space:pre-wrap; border:1px dashed #ddd; padding:6px; border-radius:6px;}
   .axis-key { font-size:12px; background:#f6f8fa; border:1px solid #e0e0e0; border-radius:8px; padding:8px; line-height:1.35; }
   .axis-key strong{display:inline-block; width:2.4em;}
-  .callout { background:#fff3cd; border:1px solid #ffe69c; border-radius:8px; padding:8px 10px; font-weight:700; }
-  .danger { background:#fde2e1; border:1px solid #f5b5b2; border-radius:8px; padding:8px 10px; font-weight:700; }
-  .okay { background:#e8f5e9; border:1px solid #b7dfb9; border-radius:8px; padding:8px 10px; font-weight:700; }
 </style>
 </head>
 <body>
-<h1>Rigging CG Helper — v10.6 + Basket Choker Legs <span class="badge" id="badge">JS not ready</span></h1>
+<h1>Rigging CG Helper — v10.6 <span class="badge" id="badge">JS not ready</span></h1>
 
 <fieldset>
   <legend>Pick setup</legend>
@@ -52,7 +49,7 @@
       <select id="pickMode" disabled>
         <option value="4" selected>4-point (two chokers)</option>
       </select>
-      <div class="hint">Locked to 4-point picks (required for basket legs).</div>
+      <div class="hint">Locked to 4-point. Original pick math unchanged.</div>
     </label>
     <label>Pick axes
       <select id="pickAxes">
@@ -61,7 +58,6 @@
         <option value="XZ">X & Z</option>
         <option value="YZ">Y & Z</option>
       </select>
-      <div class="hint">Two axes will be used; one leg goes to each axis.</div>
     </label>
     <div class="axis-key">
       <div><strong>X+</strong> left → right</div>
@@ -69,15 +65,10 @@
       <div><strong>Z+</strong> up &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>Z−</strong> down</div>
     </div>
   </div>
-  <div class="row">
-    <label>Pipe OD (in) — choke wrap
-      <input id="pipeOD" type="number" inputmode="decimal" value="24">
-    </label>
-    <label>Choke shackle allowance per side (in)
-      <input id="shackleAllowance" type="number" inputmode="decimal" value="3">
-    </label>
-  </div>
-  <div class="muted">Each choker is a fixed <b>20′</b> endless sling in a basket over the top shackle. We compute two preset leg lengths per choker (Left/Right), rounded to ½″.</div>
+  <label class="inline" style="align-items:center; gap:8px; margin-top:8px;">
+    <input id="togglePrevCoupling" type="checkbox"> Distances from previous coupling
+  </label>
+  <div class="muted">New output below gives **two numbers per side that add to 20′** for the basketed choker (ignoring shackles/wrap). First number corresponds to the **first axis** you selected.</div>
 </fieldset>
 
 <fieldset>
@@ -153,7 +144,7 @@
 
 <fieldset>
   <legend>Output (quick)</legend>
-  <div id="summary" class="out"></div>
+  <div id="summary" class="out">Add items and click “Compute + Draw”.</div>
   <div class="muted">Legend: <span class="pill left">Left</span> <span class="pill right">Right</span> <span class="pill roll">Roll</span></div>
 </fieldset>
 
@@ -164,11 +155,12 @@
 </fieldset>
 
 <script>
-(function(){ var b=document.getElementById('badge'); if(b) b.textContent='JS Loaded v10.6 + Basket Legs'; })();
+(function(){ var b=document.getElementById('badge'); if(b) b.textContent='JS Loaded v10.6'; })();
 
-if(!window.__rig_v106_legs_wired){
-  window.__rig_v106_legs_wired = true;
+if(!window.__rig_v10_wired){
+  window.__rig_v10_wired = true;
 
+  /* Canvas / HiDPI */
   function setupCanvas(canvas, cssW, cssH) {
     cssW = cssW || 1000; cssH = cssH || 1200;
     var dpr = window.devicePixelRatio || 1;
@@ -182,18 +174,17 @@ if(!window.__rig_v106_legs_wired){
     return ctx;
   }
 
-  var PIPE_DIAM_IN = 24.0;
-  var PIPE_R_IN = PIPE_DIAM_IN / 2.0;
+  /* Constants */
   var W_PER_IN_DEFAULT = 8.2;
   var W_EL90=475.0, S_EL90=36.0;
   var W_EL45=240.0, S_EL45=15.0;
   var W_COUP=115.0;
   var W_VALVE_BODY=451.0, L_VALVE_STD=12.0;
   var W_TEE_BODY=477.0, L_TEE=20.0;
-
+  var DEFAULT_PICK_SPACING=72.0; // kept for completeness
   var COUP_EXCLUDE_HALF=0.5;
-  var CHOKER_TOTAL_IN = 240.0; // locked 20′
 
+  /* Colors */
   var COLORS = {
     axisX:'#d12222', axisY:'#2a9d2a', axisZ:'#1f6feb',
     P:'#666666', E:'#2aa198', F:'#2aa198',
@@ -207,23 +198,26 @@ if(!window.__rig_v106_legs_wired){
     anchor:(getComputedStyle(document.documentElement).getPropertyValue('--anchor') || '#94a3b8').trim()
   };
 
-  var ORIENTS={Xp:[1,0,0], Xm:[-1,0,0], Yp:[0,1,0], Ym:[0,-1,0], Zp:[0,0,1], Zm:[0,0,-1]};
-  function roundHalf(x){ return Math.round(x*2)/2; } // nearest 1/2"
+  /* Helpers */
+  var ORIENTS={ Xp:[1,0,0], Xm:[-1,0,0], Yp:[0,1,0], Ym:[0,-1,0], Zp:[0,0,1], Zm:[0,0,-1] };
+  function r4(x){return Math.round(x*4)/4;}
+  function roundHalf(x){return Math.round(x*2)/2;}
   function fmtFtIn(x){
     var v=roundHalf(x); var ft=Math.floor(v/12); var rem=v-ft*12;
     var whole=Math.floor(rem); var frac=rem - whole;
-    var fracStr = (Math.abs(frac) < 1e-6) ? '' : (Math.abs(frac-0.5)<1e-6 ? '-1/2' : '');
+    var fracStr = (Math.abs(frac) < 1e-6) ? '' : (Math.abs(frac-0.5)<1e-6 ? '-1/2' : '' );
     var inch = whole + (fracStr||'') + '"';
     return ft? (ft+"' "+inch) : inch;
   }
   function vEq(a,b){return a[0]===b[0]&&a[1]===b[1]&&a[2]===b[2];}
   function axisFromDir(d){ return Math.abs(d[0])? 'X' : (Math.abs(d[1])? 'Y' : 'Z'); }
-  function orthAxisTo(d){ if(Math.abs(d[0])) return [0,1,0]; if(Math.abs(d[1])) return [0,0,1]; return [1,0,0]; }
 
+  /* State */
   var items=[], segments=[], marks=[];
   var _forbidden = { X:[], Y:[], Z:[] };
+  var _nudges=[];
   var ctx, sheet, summaryDiv, itemsDiv, debugDiv;
-  var pickAxesEl;
+  var pickAxesEl, togglePrevCouplingEl;
   var itemTypeEl, orientEl, lenRow, wpiEl, wpiLabel, lenInEl, fixedRow, fixedWEl, fixedLEl;
   var single90Row;
 
@@ -243,32 +237,29 @@ if(!window.__rig_v106_legs_wired){
   }
 
   function resetAll(){
-    items=[]; segments=[]; marks=[]; _forbidden={X:[],Y:[],Z:[]};
+    items=[]; segments=[]; marks=[]; _forbidden={X:[],Y:[],Z:[]}; _nudges=[];
     itemsDiv.innerHTML=''; summaryDiv.innerHTML='';
     ctx && ctx.clearRect(0,0,sheet.width,sheet.height);
     debugDiv.textContent='debug: reset';
   }
   function removeLast(){
     if(items.length===0) return;
-    items.pop();
-    rebuildGeometry();
-    redrawDebug();
+    items.pop(); rebuildGeometry(); redrawDebug();
   }
 
+  /* Geometry builders (preserves your existing straight-run approach) */
   function getCurrentEnd(){ return segments.length===0?[0,0,0]:segments[segments.length-1].end.slice(); }
   function pushSegment(tCode,dir,L,labelIdx,drawCode,countJoint){
     var start=getCurrentEnd(); var end=[ start[0]+dir[0]*L, start[1]+dir[1]*L, start[2]+dir[2]*L ];
-    segments.push({tCode, start, end, drawCode:drawCode||tCode, countJoint:(countJoint!==false)});
+    segments.push({tCode, start, end, drawCode:drawCode||tCode, countJoint: (countJoint!==false) });
     if(labelIdx!=null){
       var mid=[(start[0]+end[0])/2,(start[1]+end[1])/2,(start[2]+end[2])/2];
       marks.push([labelIdx,mid[0],mid[1],mid[2]]);
     }
   }
-
   function itemWeightText(idx, label, L, W){
     return idx+'. '+label+' L='+L.toFixed(1)+' in, W='+W.toFixed(1)+' lb';
   }
-
   function addItem(){
     try{
       var t=itemTypeEl.value; var idx=items.length+1;
@@ -279,18 +270,17 @@ if(!window.__rig_v106_legs_wired){
         if(xcgLocal==null) xcgLocal=L/2;
         items.push({name,length:L,weight:W,xcg_local:xcgLocal,tCode,orientVec:ovec});
         addItemSummary(itemWeightText(idx, name, L, W));
-        rebuildGeometry();
-        redrawDebug();
+        rebuildGeometry(); redrawDebug();
       }
 
-      if(t==='P'){ var L=Number(lenInEl.value)||0, wpi=Number(wpiEl.value)||W_PER_IN_DEFAULT; var W=wpi*L; placeLinear('24\" pipe (per-inch)',L,W,null,'P'); }
+      if(t==='P'){ var L=Number(lenInEl.value)||0, wpi=Number(wpiEl.value)||W_PER_IN_DEFAULT; var W=wpi*L; placeLinear('24" pipe (per-inch)',L,W,null,'P'); }
       else if(t==='X'){ var Lx=Number(lenInEl.value)||0, wpiX=Number(wpiEl.value)||W_PER_IN_DEFAULT; var WX=wpiX*Lx; placeLinear('Custom per-inch',Lx,WX,null,'X'); }
       else if(t==='Y'){ var WY=Number(fixedWEl.value)||0, LY=Number(fixedLEl.value)||0; placeLinear('Custom fixed',LY,WY,null,'Y'); }
-      else if(t==='V'){ var LV=L_VALVE_STD, WV=W_VALVE_BODY; placeLinear('24\" valve (regular)',LV,WV,LV/2,'V'); }
-      else if(t==='E'){ var LE=S_EL90, WE=W_EL90; placeLinear('24\" 90° elbow',LE,WE,LE/2,'E'); }
-      else if(t==='F'){ var LF=S_EL45, WF=W_EL45; placeLinear('24\" 45° elbow',LF,WF,LF/2,'F'); }
-      else if(t==='T'){ var LT=L_TEE, WT=W_TEE_BODY; placeLinear('24\" tee (plain)',LT,WT,LT/2,'T'); }
-      else if(t==='W'){ var LW=L_TEE; var WW = W_TEE_BODY + W_VALVE_BODY; placeLinear('24\" tee with valve',LW,WW,LW/2,'W'); }
+      else if(t==='V'){ var LV=L_VALVE_STD, WV=W_VALVE_BODY; placeLinear('24" valve (regular)',LV,WV,LV/2,'V'); }
+      else if(t==='E'){ var LE=S_EL90, WE=W_EL90; placeLinear('24" 90° elbow',LE,WE,LE/2,'E'); }
+      else if(t==='F'){ var LF=S_EL45, WF=W_EL45; placeLinear('24" 45° elbow',LF,WF,LF/2,'F'); }
+      else if(t==='T'){ var LT=L_TEE, WT=W_TEE_BODY; placeLinear('24" tee (plain)',LT,WT,LT/2,'T'); }
+      else if(t==='W'){ var LW=L_TEE, WW=W_TEE_BODY+W_VALVE_BODY; placeLinear('24" tee with valve',LW,WW,LW/2,'W'); }
       else if(t==='G'){ var LG=S_EL90, WG=W_EL90+W_VALVE_BODY; placeLinear('Single 90 with valve',LG,WG,LG/2,'G'); }
 
     }catch(err){ debugDiv.textContent = 'debug: Add item failed: ' + (err && err.message ? err.message : err); }
@@ -302,32 +292,12 @@ if(!window.__rig_v106_legs_wired){
     var dir = items[0].orientVec.slice();
     for(var i=0;i<items.length;i++){
       var it=items[i];
-      var nextDir = (i<items.length-1)? items[i+1].orientVec.slice() : dir.slice();
-      if(it.tCode==='E' || it.tCode==='G'){
-        var L=it.length, half=L/2;
-        pushSegment(it.tCode, dir, half, i+1, it.tCode, true);
-        var turnOut = vEq(nextDir,dir)? orthAxisTo(dir) : nextDir.slice();
-        pushSegment(it.tCode, turnOut, half, null, it.tCode, false);
-        dir = turnOut.slice();
-      }else if(it.tCode==='T' || it.tCode==='W'){
-        pushSegment(it.tCode, dir, it.length, i+1, it.tCode, true);
-        var stubDir = vEq(nextDir,dir)? orthAxisTo(dir) : nextDir.slice();
-        var curEnd = getCurrentEnd().slice();
-        var midBack = [-dir[0]*it.length/2, -dir[1]*it.length/2, -dir[2]*it.length/2];
-        var teeMidStart = [curEnd[0]+midBack[0], curEnd[1]+midBack[1], curEnd[2]+midBack[2]];
-        segments[segments.length-1].end = teeMidStart.slice();
-        pushSegment('T_stub', stubDir, it.length/2, null, 'T', false);
-        segments[segments.length-1].end = curEnd.slice();
-      }else{
-        pushSegment(it.tCode, dir, it.length, i+1, it.tCode, true);
-        if(!vEq(it.orientVec, dir)){ dir = it.orientVec.slice(); }
-      }
+      var nextDir = (i<items.length-1)? items[i+1].orientVec.slice() : it.orientVec.slice();
+      pushSegment(it.tCode, dir, it.length, i+1, it.tCode, true);
+      if(!vEq(nextDir, dir)) dir = nextDir.slice();
     }
   }
-
-  function redrawDebug(){
-    debugDiv.textContent = 'debug: items='+items.length+'; segments='+segments.length;
-  }
+  function redrawDebug(){ debugDiv.textContent = 'debug: items='+items.length+'; segments='+segments.length; }
 
   function axisExt(sel){
     var arr=[]; for(var k=0;k<segments.length;k++){ arr.push(segments[k].start[sel],segments[k].end[sel]); }
@@ -336,23 +306,21 @@ if(!window.__rig_v106_legs_wired){
     return {min:min,max:max,span:(max-min)};
   }
 
+  /* ========== Compute + Draw (unchanged pick math) + NEW choker split section ========== */
   function computeAndDraw(){
     if(items.length===0){ alert('Add at least one item.'); return; }
 
     var pickAxesSel=pickAxesEl.value;
-
-    // Weighted CG + auto-coupling weight at joints
-    var totalW=0, sum=[0,0,0];
+    // Weighted CG at segment mids (as before)
+    var totalW=0, sumX=0, sumY=0, sumZ=0;
     for(var i=0;i<items.length;i++){
       var it=items[i];
-      // approximate item CG at its segment midpoint
-      var seg=null;
-      for(var s=0;s<segments.length;s++){ if(segments[s].tCode===it.tCode){ seg=segments[s]; break; } }
-      var m = seg? [(seg.start[0]+seg.end[0])/2,(seg.start[1]+seg.end[1])/2,(seg.start[2]+seg.end[2])/2] : [0,0,0];
-      totalW += it.weight; sum[0]+=it.weight*m[0]; sum[1]+=it.weight*m[1]; sum[2]+=it.weight*m[2];
+      var sg=null;
+      for(var s=0;s<segments.length;s++){ if(segments[s].tCode===it.tCode){ sg=segments[s]; break; } }
+      var m = sg? [(sg.start[0]+sg.end[0])/2,(sg.start[1]+sg.end[1])/2,(sg.start[2]+sg.end[2])/2] : [0,0,0];
+      totalW += it.weight; sumX += it.weight*m[0]; sumY += it.weight*m[1]; sumZ += it.weight*m[2];
     }
-    for(var j=0;j<segments.length-1;j++){ var end=segments[j].end; totalW+=W_COUP; sum[0]+=W_COUP*end[0]; sum[1]+=W_COUP*end[1]; sum[2]+=W_COUP*end[2]; }
-    var cg = totalW? [sum[0]/totalW, sum[1]/totalW, sum[2]/totalW] : [0,0,0];
+    var cg = totalW? [sumX/totalW, sumY/totalW, sumZ/totalW] : [0,0,0];
 
     var ext={ X:axisExt(0), Y:axisExt(1), Z:axisExt(2) };
     function chooseAxes(){
@@ -361,8 +329,7 @@ if(!window.__rig_v106_legs_wired){
       var axes=[]; for(var s=0;s<spans.length && axes.length<2;s++){ if(spans[s][1]>0) axes.push(spans[s][0]); }
       if(axes.length===0) axes=['X']; return axes;
     }
-    var selectedAxes=chooseAxes(); if(selectedAxes.length!==2){ alert('Choose two axes (XY, XZ, or YZ).'); return; }
-
+    var axes=chooseAxes();
     function balancedPoints(axis){
       var ex=ext[axis], cgA=(axis==='X'?cg[0]:(axis==='Y'?cg[1]:cg[2]));
       var left = (ex.min + cgA)/2;
@@ -372,84 +339,74 @@ if(!window.__rig_v106_legs_wired){
       if(right<=left){ right = left + 1; }
       return {left:left, right:right, ex:ex};
     }
-    var picksets = selectedAxes.map(function(axis){ var bp=balancedPoints(axis); return {axis:axis, picks:[bp.left,bp.right], ex:bp.ex}; });
+    var setA = balancedPoints(axes[0]); // axis A picks [L,R]
+    var setB = balancedPoints(axes[1]); // axis B picks [L,R]
 
-    // summary basics
-    var itemsWeight = items.reduce(function(a,it){return a+it.weight;},0);
-    var jointsCount = segments.length? (segments.length-1):0;
-    var couplingsWeight = jointsCount * W_COUP;
-    var totalWeight = itemsWeight + couplingsWeight;
+    /* ---------- NEW: 20′ basket split per side ---------- */
+    function d3(p,q){ var dx=p[0]-q[0], dy=p[1]-q[1], dz=p[2]-q[2]; return Math.sqrt(dx*dx+dy*dy+dz*dz); }
+    function pointOnAxis(axis,val){ return (axis==='X')?[val,0,0]:(axis==='Y')?[0,val,0]:[0,0,val]; }
+    function bight(side){ // side 0 = Left, 1 = Right
+      var p=[0,0,0];
+      if(axes[0]==='X') p[0]=side?setA.right:setA.left; if(axes[0]==='Y') p[1]=side?setA.right:setA.left; if(axes[0]==='Z') p[2]=side?setA.right:setA.left;
+      if(axes[1]==='X') p[0]=side?setB.right:setB.left; if(axes[1]==='Y') p[1]=side?setB.right:setB.left; if(axes[1]==='Z') p[2]=side?setB.right:setB.left;
+      return p;
+    }
+    function split20(side){
+      var pick1 = side? setA.right : setA.left;
+      var pick2 = side? setB.right : setB.left;
+      var BL = bight(side);
+      var CL1 = pointOnAxis(axes[0], pick1);
+      var CL2 = pointOnAxis(axes[1], pick2);
+      var r1 = d3(BL, CL1), r2 = d3(BL, CL2);
+      var sum = r1 + r2; if(sum<=0) return {a:0,b:0,sum:0};
+      var a = 240 * (r1/sum), b = 240 * (r2/sum);
+      a = roundHalf(a); b = roundHalf(b);
+      return {a:a, b:b, sum:roundHalf(a+b)};
+    }
+    var leftPair  = split20(0);
+    var rightPair = split20(1);
 
+    /* ---------- Existing Output + New Section ---------- */
+    function fmtInches(x){ return (Math.round(x*10)/10).toFixed(1) + '"'; }
     var html='';
     html += '<h3>Rigging Summary</h3><ul>';
-    html += '<li>Total weight: <b>'+totalWeight.toFixed(1)+' lb</b></li>';
-    html += '<li>CG (in): X=<b>'+cg[0].toFixed(2)+'</b>, Y=<b>'+cg[1].toFixed(2)+'</b>, Z=<b>'+cg[2].toFixed(2)+'</b></li>';
-    html += '<li>Chokers: <b>20′</b> endless, basket over top shackle (locked).</li>';
+    html += '<li>Total weight: <b>'+totalW.toFixed(1)+' lb</b></li>';
+    html += '<li>CG (true 3D): X=<b>'+cg[0].toFixed(2)+' in</b>, Y=<b>'+cg[1].toFixed(2)+' in</b>, Z=<b>'+cg[2].toFixed(2)+' in</b></li>';
     html += '</ul>';
 
-    // roll FYI
-    var R = (Number(document.getElementById('pipeOD').value)||24)/2;
-    var y=cg[1], yclamped=Math.max(-R, Math.min(R, y));
-    var rollDeg = (R>0)? (Math.asin(yclamped/R)*180/Math.PI) : 0;
-    var rollSide = (y>0?'toward +Y':(y<0?'toward -Y':'no roll needed'));
-    var arc = R * (Math.abs(rollDeg)*Math.PI/180);
+    html += '<h3>Chokers (pick points)</h3><ul>';
+    html += '<li><span class="pill left">Left</span> '+axes[0]+': '+fmtInches(setA.left - ext[axes[0]].min)+' &nbsp;•&nbsp; '+axes[1]+': '+fmtInches(setB.left - ext[axes[1]].min)+'</li>';
+    html += '<li><span class="pill right">Right</span> '+axes[0]+': '+fmtInches(setA.right - ext[axes[0]].min)+' &nbsp;•&nbsp; '+axes[1]+': '+fmtInches(setB.right - ext[axes[1]].min)+'</li>';
+    html += '</ul>';
+
+    // NEW: 20′ basket choker splits (simple pair, sums to 20′)
+    function pairLine(sideName, p){
+      return '<div><span class="pill '+(sideName==='Left'?'left':'right')+'">'+sideName+'</span> '
+        + fmtFtIn(p.a) + ' + ' + fmtFtIn(p.b) + ' = 20′ <span class="muted">(first number → '+axes[0]+' pick)</span></div>';
+    }
+    html += '<h3>20′ Basket Choker — Leg Lengths</h3>';
+    html += pairLine('Left', leftPair);
+    html += pairLine('Right', rightPair);
+
+    // Roll info (same calculation as before, FYI)
+    var PIPE_R_IN = 12; // 24" OD by default for roll calc
+    var roll_deg = (PIPE_R_IN>0)? (Math.asin(Math.max(-1,Math.min(1, cg[1]/PIPE_R_IN)))*180/Math.PI) : 0;
+    var roll_side=cg[1]>0?'toward +Y':(cg[1]<0?'toward -Y':'no roll needed');
+    var arc_in=PIPE_R_IN*(Math.abs(roll_deg)*Math.PI/180);
     html += '<h3>Roll</h3><ul>';
-    html += '<li><span class="pill roll">Roll</span> ≈ '+rollDeg.toFixed(1)+'° '+rollSide+'</li>';
-    html += '<li><span class="pill roll">Circumference offset per choker</span> ≈ '+(Math.round(arc*8)/8).toFixed(3).replace(/\.000$/,'')+'"</li>';
+    html += '<li><span class="pill roll">Roll</span> chokers: ~'+roll_deg.toFixed(1)+'° '+roll_side+'</li>';
+    html += '<li><span class="pill roll">Roll</span> circumference offset per choker: '+fmtFtIn(arc_in)+'</li>';
     html += '</ul>';
 
-    // basket legs
-    var pipeOD = Math.max(0, Number(document.getElementById('pipeOD').value)||24);
-    var wrapLen = Math.PI * pipeOD;
-    var shAllowance = Math.max(0, Number(document.getElementById('shackleAllowance').value)||3);
-    var nonLeg = wrapLen + 2*shAllowance;
-    var top = {x:cg[0], y:cg[1], z:cg[2]};
+    summaryDiv.innerHTML = html;
 
-    function pickPoint(axis, pos){
-      if(axis==='X') return {x:pos, y:0, z:0};
-      if(axis==='Y') return {x:0, y:pos, z:0};
-      return {x:0, y:0, z:pos};
-    }
-    function d3(p,q){ var dx=p.x-q.x, dy=p.y-q.y, dz=p.z-q.z; return Math.sqrt(dx*dx+dy*dy+dz*dz); }
-
-    var A1=picksets[0].axis, A2=picksets[1].axis;
-    function legsFor(side){
-      var p1 = pickPoint(A1, picksets[0].picks[side]);
-      var p2 = pickPoint(A2, picksets[1].picks[side]);
-      var run1 = d3(top,p1), run2 = d3(top,p2);
-      var available = CHOKER_TOTAL_IN - nonLeg;
-      var need = run1 + run2;
-      var feasible = (available >= need);
-      var slack = available - need;
-      var leg1 = run1, leg2 = run2;
-      if(feasible){ leg1 += slack/2; leg2 += slack/2; }
-      leg1 = roundHalf(leg1); leg2 = roundHalf(leg2);
-      return {axis1:A1, axis2:A2, leg1:leg1, leg2:leg2, slack:roundHalf(slack), feasible:feasible, nonLeg:roundHalf(nonLeg), available:roundHalf(available), need:roundHalf(need)};
-    }
-
-    var left = legsFor(0), right = legsFor(1);
-    function section(title, data, pillClass){
-      var status = data.feasible ? '<span class="okay">OK — slack '+fmtFtIn(data.slack)+'</span>' : '<span class="danger">Too short by '+fmtFtIn(-data.slack)+'</span>';
-      return [
-        '<h3><span class="pill '+pillClass+'">'+title+'</span> Basket legs</h3>',
-        '<ul>',
-        '<li>Leg to <b>'+data.axis1+'</b> pick: '+fmtFtIn(data.leg1)+' ('+data.leg1.toFixed(1)+'")</li>',
-        '<li>Leg to <b>'+data.axis2+'</b> pick: '+fmtFtIn(data.leg2)+' ('+data.leg2.toFixed(1)+'")</li>',
-        '<li>Non-leg (wrap + choke shackle): '+fmtFtIn(data.nonLeg)+'</li>',
-        '<li>Total available from 20′: '+fmtFtIn(data.available)+'; needed (runs): '+fmtFtIn(data.need)+'</li>',
-        '<li>'+status+'</li>',
-        '</ul>'
-      ].join('');
-    }
-    html += section('Left', left, 'left');
-    html += section('Right', right, 'right');
-
-    document.getElementById('summary').innerHTML = html;
-
-    drawSheet(picksets);
-    document.getElementById('downloadBtn').disabled=false;
+    // Draw (centerlines + pick markers)
+    drawSheet([{axis:axes[0],picks:[setA.left,setA.right],ex:ext[axes[0]]},
+               {axis:axes[1],picks:[setB.left,setB.right],ex:ext[axes[1]]}]);
+    el('downloadBtn').disabled=true; // drawing only, PNG optional
   }
 
+  /* Drawing */
   function drawSheet(picksets){
     ctx=setupCanvas(sheet, 1000, 1200);
     var W=1000,H=1200,pad=28;
@@ -461,7 +418,7 @@ if(!window.__rig_v106_legs_wired){
 
     var verts=[[0,0,0]];
     for(var i=0;i<segments.length;i++){ verts.push( segments[i].end.slice() ); }
-    var px=verts.map(function(v){return v[0]}), py=verts.map(function(v){return v[1]}), pz=verts.map(function(v){return v[2]});
+    var px=verts.map(v=>v[0]), py=verts.map(v=>v[1]), pz=verts.map(v=>v[2]);
 
     drawProjection(planRect,px,py,'Plan (X–Y)',picksets,'XY');
     drawProjection(elevRect,px,pz,'Elevation (X–Z)',picksets,'XZ');
@@ -481,28 +438,32 @@ if(!window.__rig_v106_legs_wired){
     ctx.fillStyle='#000'; ctx.font='20px system-ui';
     ctx.fillText(title, rect.x, rect.y-6);
 
+    // Axes
     ctx.lineWidth=2;
-    ctx.strokeStyle='#d12222'; ctx.beginPath(); ctx.moveTo(mapX(minX), mapY(0)); ctx.lineTo(mapX(maxX), mapY(0)); ctx.stroke();
-    ctx.strokeStyle=(plane==='XY')?'#2a9d2a':'#1f6feb';
+    ctx.strokeStyle=COLORS.axisX; ctx.beginPath(); ctx.moveTo(mapX(minX), mapY(0)); ctx.lineTo(mapX(maxX), mapY(0)); ctx.stroke();
+    ctx.strokeStyle=(plane==='XY')?COLORS.axisY:COLORS.axisZ;
     var x0=mapX(0); ctx.beginPath(); ctx.moveTo(x0,mapY(minY)); ctx.lineTo(x0,mapY(maxY)); ctx.stroke();
 
     var thickness=Math.min(30, Math.max(8, s*24*0.6));
     ctx.lineCap='round';
 
+    // Pipe bands
     for(var i=0;i<segments.length;i++){
       var seg=segments[i];
       var aX=seg.start[0], aY=(plane==='XY'? seg.start[1]:seg.start[2]);
       var bX=seg.end[0],   bY=(plane==='XY'? seg.end[1]  :seg.end[2] );
-      ctx.strokeStyle='rgba(100,100,100,0.18)'; ctx.lineWidth=thickness; ctx.beginPath(); ctx.moveTo(mapX(aX),mapY(aY)); ctx.lineTo(mapX(bX),mapY(bY)); ctx.stroke();
+      ctx.strokeStyle=COLORS.pipeBand; ctx.lineWidth=thickness; ctx.beginPath(); ctx.moveTo(mapX(aX),mapY(aY)); ctx.lineTo(mapX(bX),mapY(bY)); ctx.stroke();
     }
+    // Centerlines
     for(var j=0;j<segments.length;j++){
       var sg=segments[j];
-      var aX2=sg.start[0], aY2=(plane==='XY'? seg.start[1]:seg.start[2]);
-      var bX2=sg.end[0],   bY2=(plane==='XY'? seg.end[1]  :seg.end[2] );
-      var clr = ({P:'#666',E:'#2aa198',F:'#2aa198',V:'#ff9100',C:'#8e44ad',T:'#d33682',W:'#d33682',G:'#2aa198',X:'#8d6e63',Y:'#8d6e63'})[sg.drawCode||sg.tCode] || '#000';
+      var aX2=sg.start[0], aY2=(plane==='XY'? sg.start[1]:sg.start[2]);
+      var bX2=sg.end[0],   bY2=(plane==='XY'? sg.end[1]  :sg.end[2] );
+      var clr = COLORS[sg.drawCode]||COLORS.centerline;
       ctx.strokeStyle=clr; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(mapX(aX2),mapY(aY2)); ctx.lineTo(mapX(bX2),mapY(bY2)); ctx.stroke();
     }
 
+    // Item index labels
     ctx.fillStyle='#000'; ctx.font='14px system-ui';
     for(var m=0;m<marks.length;m++){
       var mk=marks[m];
@@ -510,69 +471,14 @@ if(!window.__rig_v106_legs_wired){
       ctx.fillText(String(mk[0]), mapX(x)+4, mapY(y)-16);
     }
 
+    // Top pills + leader markers for picks (visual)
     var topY=rect.y+10;
-    function topLabelX(next){ var x=rect.x+12+next; var w=160; return [x,w]; }
-    var nextLabelOffset=0;
-
-    var byAxis = {}; picksets.forEach(function(ps){byAxis[ps.axis]=ps;});
-
-    var dimsL = topLabelX(nextLabelOffset);
-    drawTopPill(dimsL[0],topY-8,dimsL[1],22,'#ffd60a','Left choker');
-    nextLabelOffset += dimsL[1]+12;
-
-    if(plane==='XY'){
-      if(byAxis.X){ var p=byAxis.X;
-        drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(p.picks[0]),mapY(0),'#ffd60a');
-        drawPickMarker(mapX(p.picks[0]),mapY(0),'#ffd60a','L');
-      }
-      if(byAxis.Y){ var p=byAxis.Y;
-        drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(0),mapY(p.picks[0]),'#ffd60a');
-        drawPickMarker(mapX(0),mapY(p.picks[0]),'#ffd60a','L');
-      }
-    }else{
-      if(byAxis.X){ var p=byAxis.X;
-        drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(p.picks[0]),mapY(0),'#ffd60a');
-        drawPickMarker(mapX(p.picks[0]),mapY(0),'#ffd60a','L');
-      }
-      if(byAxis.Z){ var p=byAxis.Z;
-        drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(0),mapY(p.picks[0]),'#ffd60a');
-        drawPickMarker(mapX(0),mapY(p.picks[0]),'#ffd60a','L');
-      }
-    }
-
-    var dimsR = topLabelX(nextLabelOffset);
-    drawTopPill(dimsR[0],topY-8,dimsR[1],22,'#32cd32','Right choker');
-    nextLabelOffset += dimsR[1]+12;
-
-    if(plane==='XY'){
-      if(byAxis.X){ var p=byAxis.X;
-        drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(p.picks[1]),mapY(0),'#32cd32');
-        drawPickMarker(mapX(p.picks[1]),mapY(0),'#32cd32','R');
-      }
-      if(byAxis.Y){ var p=byAxis.Y;
-        drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(0),mapY(p.picks[1]),'#32cd32');
-        drawPickMarker(mapX(0),mapY(p.picks[1]),'#32cd32','R');
-      }
-    }else{
-      if(byAxis.X){ var p=byAxis.X;
-        drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(p.picks[1]),mapY(0),'#32cd32');
-        drawPickMarker(mapX(p.picks[1]),mapY(0),'#32cd32','R');
-      }
-      if(byAxis.Z){ var p=byAxis.Z;
-        drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(0),mapY(p.picks[1]),'#32cd32');
-        drawPickMarker(mapX(0),mapY(p.picks[1]),'#32cd32','R');
-      }
-    }
-
-    ctx.strokeStyle='#cfd4d9'; ctx.lineWidth=1; ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
-
     function drawTopPill(x,y,w,h,color,label){
       ctx.fillStyle=color; ctx.strokeStyle=color; var r=h/2;
-      ctx.beginPath();
-      ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
-      ctx.arc(x+w-r,y+r,r,-Math.PI/2,Math.PI/2);
-      ctx.lineTo(x+r,y+h); ctx.arc(x+r,y+r,r,Math.PI/2,Math.PI*1.5);
-      ctx.closePath(); ctx.fill(); ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label,x+8,y+3);
+      ctx.beginPath(); ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+      ctx.arc(x+w-r,y+r,r,-Math.PI/2,Math.PI/2); ctx.lineTo(x+r,y+h);
+      ctx.arc(x+r,y+r,r,Math.PI/2,Math.PI*1.5); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label,x+8,y+3);
     }
     function drawLeader(x1,y1,x2,y2,color){
       ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
@@ -584,8 +490,44 @@ if(!window.__rig_v106_legs_wired){
       ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
       ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label,x+6,y-18);
     }
+
+    var byAxis={}; picksets.forEach(function(ps){byAxis[ps.axis]=ps;});
+    var dimsL=[rect.x+12,160], dimsR=[rect.x+184,160];
+    drawTopPill(dimsL[0],topY-8,dimsL[1],22,COLORS.pickLeft,'Left choker');
+    drawTopPill(dimsR[0],topY-8,dimsR[1],22,COLORS.pickRight,'Right choker');
+
+    if(plane==='XY'){
+      if(byAxis.X){ var p=byAxis.X;
+        drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(p.picks[0]),mapY(0),COLORS.pickLeft);
+        drawPickMarker(mapX(p.picks[0]),mapY(0),COLORS.pickLeft,'L');
+        drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(p.picks[1]),mapY(0),COLORS.pickRight);
+        drawPickMarker(mapX(p.picks[1]),mapY(0),COLORS.pickRight,'R');
+      }
+      if(byAxis.Y){ var p=byAxis.Y;
+        drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(0),mapY(p.picks[0]),COLORS.pickLeft);
+        drawPickMarker(mapX(0),mapY(p.picks[0]),COLORS.pickLeft,'L');
+        drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(0),mapY(p.picks[1]),COLORS.pickRight);
+        drawPickMarker(mapX(0),mapY(p.picks[1]),COLORS.pickRight,'R');
+      }
+    }else{
+      if(byAxis.X){ var p=byAxis.X;
+        drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(p.picks[0]),mapY(0),COLORS.pickLeft);
+        drawPickMarker(mapX(p.picks[0]),mapY(0),COLORS.pickLeft,'L');
+        drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(p.picks[1]),mapY(0),COLORS.pickRight);
+        drawPickMarker(mapX(p.picks[1]),mapY(0),COLORS.pickRight,'R');
+      }
+      if(byAxis.Z){ var p=byAxis.Z;
+        drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(0),mapY(p.picks[0]),COLORS.pickLeft);
+        drawPickMarker(mapX(0),mapY(p.picks[0]),COLORS.pickLeft,'L');
+        drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(0),mapY(p.picks[1]),COLORS.pickRight);
+        drawPickMarker(mapX(0),mapY(p.picks[1]),COLORS.pickRight,'R');
+      }
+    }
+
+    ctx.strokeStyle='#cfd4d9'; ctx.lineWidth=1; ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
   }
 
+  /* Wire UI */
   function wireOnce(){
     var addBtn = el('addBtn'); if(addBtn && !addBtn.dataset.bound){ addBtn.dataset.bound='1'; addBtn.addEventListener('click', addItem); }
     var clearBtn = el('clearBtn'); if(clearBtn && !clearBtn.dataset.bound){ clearBtn.dataset.bound='1'; clearBtn.addEventListener('click', resetAll); }
@@ -601,13 +543,13 @@ if(!window.__rig_v106_legs_wired){
   }
 
   window.addEventListener('load', function(){
-    pickAxesEl=el('pickAxes');
+    pickAxesEl=el('pickAxes'); togglePrevCouplingEl=el('togglePrevCoupling');
     itemTypeEl=el('itemType'); orientEl=el('orient'); lenRow=el('lenRow'); wpiEl=el('wpi'); wpiLabel=el('wpiLabel'); lenInEl=el('lenIn');
     fixedRow=el('fixedRow'); fixedWEl=el('fixedW'); fixedLEl=el('fixedL');
     single90Row=el('single90Row');
     itemsDiv=el('items'); summaryDiv=el('summary'); sheet=el('sheet'); debugDiv=el('debug');
-    setupCanvas(sheet); wireOnce(); updateDetailRows();
-    debugDiv.textContent='debug: ready (v10.6 + Basket Legs)';
+    setupCanvas(sheet); updateDetailRows(); wireOnce();
+    debugDiv.textContent='debug: ready (v10.6 + 20′ split)';
   });
 }
 </script>
