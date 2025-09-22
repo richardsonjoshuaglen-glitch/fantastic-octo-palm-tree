@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Complex COG Rigging Calculator</title>
+<style>
+  :root{
+    --bg:#ffffff; --ink:#111; --panel:#f8f9fa; --border:#e9ecef; --accent:#0d6efd;
+    --roll:#5bc0ff; --pickL:#ffd60a; --pickR:#32cd32;
+    --anchor:#94a3b8;
+  }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; color: var(--ink); background: var(--bg); }
+  h1 { font-size: 20px; margin: 0 0 10px; display:flex; align-items:center; gap:10px;}
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#d1e7dd; color:#0f5132; font-weight:700; font-size:12px; }
+  fieldset { border: 1px solid #ccc; border-radius: 10px; margin: 10px 0; padding: 10px 12px; }
+  legend { padding: 0 6px; font-weight: 600; }
+  label { display:block; margin:6px 0 2px; font-size:14px; }
+  .inline { display:flex; align-items:center; gap:8px; }
+  select, input[type="number"], input[type="text"] { width: 100%; font-size: 16px; padding: 10px 12px; box-sizing: border-box; border-radius: 8px; border:1px solid #cfd4d9; }
+  .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+  .row3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px;}
+  .btn { display:inline-block; padding:10px 12px; margin:8px 6px 0 0; border-radius:10px; background:var(--accent); color:#fff; border:none; font-size:16px; cursor:pointer; }
+  .btn.secondary { background:#6c757d; }
+  .items { margin-top:6px; }
+  .item { padding:8px; border:1px dashed #999; border-radius:8px; margin-bottom:8px; font-size:14px; }
+  .hint { color:#555; font-size:13px; }
+  #sheet { width:100%; max-width:1000px; background:#fff; border:1px solid #ddd; border-radius:8px; display:block; }
+  .out { background:var(--panel); padding:12px; border-radius:10px; border:1px solid var(--border); line-height:1.5; font-size:15px; }
+  .out h3 { margin:6px 0; font-size:16px; }
+  .out ul { margin:6px 0 10px 20px; padding:0; }
+  .out li { margin:4px 0; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-weight:600; font-size:12px; color:#000; vertical-align:baseline; }
+  .pill.left { background: var(--pickL); }
+  .pill.right{ background: var(--pickR); }
+  .pill.roll { background: var(--roll); }
+  .muted { color:#444; font-size:13px; }
+  #debug { margin-top:6px; font-size:12px; color:#b00020; white-space:pre-wrap; border:1px dashed #ddd; padding:6px; border-radius:6px;}
+  .axis-key { font-size:12px; background:#f6f8fa; border:1px solid #e0e0e0; border-radius:8px; padding:8px; line-height:1.35; }
+  .axis-key strong{display:inline-block; width:2.4em;}
+</style>
+</head>
+<body>
+<h1>Rigging CG Helper — v10.7 <span class="badge" id="badge">JS not ready</span></h1>
+
+<fieldset>
+  <legend>Pick setup</legend>
+  <div class="row3">
+    <label>Pick mode
+      <select id="pickMode">
+        <option value="2">2 picks</option>
+        <option value="4" selected>4-point (two chokers)</option>
+      </select>
+    </label>
+    <label>Pick axes
+      <select id="pickAxes">
+        <option value="AUTO" selected>Auto</option>
+        <option value="X">X only</option>
+        <option value="Y">Y only</option>
+        <option value="Z">Z only</option>
+        <option value="XY">X & Y</option>
+        <option value="XZ">X & Z</option>
+        <option value="YZ">Y & Z</option>
+      </select>
+    </label>
+    <label>Equalizer hook X (in, optional)
+      <input id="hookX" type="number" inputmode="decimal" placeholder="default = CG X">
+      <div class="hint">Top pulley/hook X-position. If blank, uses CG X.</div>
+    </label>
+  </div>
+  <div class="row">
+    <div class="axis-key">
+      <div><strong>X+</strong> left → right</div>
+      <div><strong>Y+</strong> toward you &nbsp;&nbsp; <strong>Y−</strong> away from you</div>
+      <div><strong>Z+</strong> up &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>Z−</strong> down</div>
+    </div>
+    <div>
+      <label class="inline" style="align-items:center; gap:8px; margin-top:8px;">
+        <input id="togglePrevCoupling" type="checkbox"> Distances from previous coupling
+      </label>
+    </div>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>Add item</legend>
+  <div class="row">
+    <label>Item type
+      <select id="itemType">
+        <option value="P">24&quot; pipe (per-inch)</option>
+        <option value="V">24&quot; valve (regular)</option>
+        <option value="E">24&quot; 90° elbow</option>
+        <option value="F">24&quot; 45° elbow</option>
+        <option value="T">24&quot; tee (plain)</option>
+        <option value="W">24&quot; tee with valve</option>
+        <option value="G">Single 90 with valve</option>
+        <option value="X">Custom per-inch</option>
+        <option value="Y">Custom fixed</option>
+      </select>
+    </label>
+    <label>Orientation (layman directions)
+      <select id="orient">
+        <option value="Xp" selected>Right (X+)</option>
+        <option value="Xm">Left (X−)</option>
+        <option value="Yp">Toward You (Y+)</option>
+        <option value="Ym">Away From You (Y−)</option>
+        <option value="Zp">Up (Z+)</option>
+        <option value="Zm">Down (Z−)</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="row" id="lenRow" style="display:block">
+    <label>Length (in)
+      <input id="lenIn" type="number" inputmode="decimal" value="60">
+    </label>
+    <label id="wpiLabel">Weight per inch (lb/in)
+      <input id="wpi" type="number" inputmode="decimal" value="8.2">
+    </label>
+  </div>
+
+  <div class="row" id="fixedRow" style="display:none">
+    <label>Total weight (lb)
+      <input id="fixedW" type="number" inputmode="decimal" value="0">
+    </label>
+    <label>Effective length along chosen axis (in)
+      <input id="fixedL" type="number" inputmode="decimal" value="0">
+    </label>
+  </div>
+
+  <div id="single90Row" class="row" style="display:none">
+    <label>Straight before 90 (in)
+      <input id="s90_before" type="number" inputmode="decimal" value="0">
+    </label>
+    <label>Extra straight AFTER 90 (in)
+      <input id="s90_after" type="number" inputmode="decimal" value="0">
+    </label>
+    <label>Valve type
+      <select id="s90_vtype">
+        <option value="S">Standard</option>
+      </select>
+    </label>
+  </div>
+
+  <button class="btn" id="addBtn" type="button">Add item</button>
+  <button class="btn secondary" id="removeLastBtn" type="button">Remove last item</button>
+  <button class="btn secondary" id="clearBtn" type="button">Clear list</button>
+
+  <div class="items" id="items"></div>
+  <div id="debug">debug: (none)</div>
+</fieldset>
+
+<button class="btn" id="computeBtn" type="button">Compute + Draw</button>
+<button class="btn secondary" id="downloadBtn" type="button" disabled>Download PNG</button>
+
+<fieldset>
+  <legend>Output (quick)</legend>
+  <div id="summary" class="out"></div>
+  <div class="muted">Legend: <span class="pill left">Left</span> <span class="pill right">Right</span> <span class="pill roll">Roll</span></div>
+</fieldset>
+
+<fieldset>
+  <legend>Drawings</legend>
+  <canvas id="sheet"></canvas>
+  <div class="muted">Plan (X–Y) & Elevation (X–Z). Labels group by <b>Left</b>/<b>Right</b>. Sling lengths are shown near pick markers.</div>
+</fieldset>
+
+<script>
+(function(){ var b=document.getElementById('badge'); if(b) b.textContent='JS Loaded v10.7'; })();
+
+if(!window.__rig_v107_wired){
+  window.__rig_v107_wired = true;
+
+  function setupCanvas(canvas, cssW, cssH) {
+    cssW = cssW || 1000; cssH = cssH || 1200;
+    var dpr = window.devicePixelRatio || 1;
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+    canvas.width  = Math.floor(cssW * dpr);
+    canvas.height = Math.floor(cssH * dpr);
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.textBaseline = 'top';
+    return ctx;
+  }
+
+  var PIPE_DIAM_IN = 24.0;
+  var PIPE_R_IN = PIPE_DIAM_IN / 2.0;
+  var W_PER_IN_DEFAULT = 8.2;
+  var W_EL90=475.0, S_EL90=36.0;
+  var W_EL45=240.0, S_EL45=15.0;
+  var W_COUP=115.0;
+  var W_VALVE_BODY=451.0, L_VALVE_STD=12.0;
+  var W_TEE_BODY=477.0, L_TEE=20.0;
+
+  var COUP_EXCLUDE_HALF=0.5;
+
+  var COLORS = {
+    axisX:'#d12222', axisY:'#2a9d2a', axisZ:'#1f6feb',
+    P:'#666666', E:'#2aa198', F:'#2aa198',
+    V:'#ff9100', C:'#8e44ad',
+    T:'#d33682', W:'#d33682', G:'#2aa198',
+    X:'#8d6e63', Y:'#8d6e63',
+    pickLeft: (getComputedStyle(document.documentElement).getPropertyValue('--pickL') || '#ffd60a').trim(),
+    pickRight:(getComputedStyle(document.documentElement).getPropertyValue('--pickR') || '#32cd32').trim(),
+    pipeBand:'rgba(100,100,100,0.18)',
+    centerline:'#000',
+    flag:'#d32f2f',
+    anchor:(getComputedStyle(document.documentElement).getPropertyValue('--anchor') || '#94a3b8').trim()
+  };
+
+  var ORIENTS={Xp:[1,0,0], Xm:[-1,0,0], Yp:[0,1,0], Ym:[0,-1,0], Zp:[0,0,1], Zm:[0,0,-1]};
+  function vEq(a,b){return a[0]===b[0]&&a[1]===b[1]&&a[2]===b[2];}
+  function axisFromDir(d){ return Math.abs(d[0])? 'X' : (Math.abs(d[1])? 'Y' : 'Z'); }
+  function orthAxisTo(d){ if(Math.abs(d[0])) return [0,1,0]; if(Math.abs(d[1])) return [0,0,1]; return [1,0,0]; }
+  function r4(x){return Math.round(x*4)/4;}
+  function fmtFtIn(x){
+    var v=r4(x); var ft=Math.floor(v/12); var rem=v-ft*12;
+    var whole=Math.floor(rem); var frac=Math.round((rem-whole)*100)/100;
+    var map={"0":"", "0.25":"-1/4", "0.5":"-1/2", "0.75":"-3/4"};
+    var tag = map.hasOwnProperty(String(frac)) ? map[String(frac)] : null;
+    var inch = tag!==null ? (whole+tag+'"') : (rem.toFixed(2)+'"');
+    return ft? (ft+"' "+inch) : inch;
+  }
+  function toFeetStr(inches){ return (inches/12).toFixed(1) + ' ft'; }
+
+  var items=[],segments=[],marks=[];
+  var _forbidden={X:[],Y:[],Z:[]};
+  var ctx, sheet, summaryDiv, itemsDiv, debugDiv;
+  var pickModeEl, pickAxesEl, togglePrevCouplingEl, hookXEl;
+  var itemTypeEl, orientEl, lenRow, wpiEl, wpiLabel, lenInEl, fixedRow, fixedWEl, fixedLEl;
+  var single90Row;
+
+  function el(id){ return document.getElementById(id); }
+
+  function updateDetailRows(){
+    var t=itemTypeEl.value;
+    lenRow.style.display='none'; fixedRow.style.display='none'; single90Row.style.display='none';
+    if(t==='P'||t==='X'){ lenRow.style.display='grid'; wpiLabel.style.display='block'; }
+    if(t==='Y'){ fixedRow.style.display='grid'; }
+  }
+
+  function addItemSummary(text){
+    var d=document.createElement('div'); d.className='item'; d.textContent=text; itemsDiv.appendChild(d);
+  }
+
+  function resetAll(){ items=[]; segments=[]; marks=[]; _forbidden={X:[],Y:[],Z:[]}; itemsDiv.innerHTML=''; summaryDiv.innerHTML=''; ctx && ctx.clearRect(0,0,sheet.width,sheet.height); debugDiv.textContent='debug: reset'; }
+  function removeLast(){ if(items.length===0) return; items.pop(); rebuildGeometry(); debugDiv.textContent='debug: removed last; items='+items.length; }
+
+  function getCurrentEnd(){ return segments.length===0?[0,0,0]:segments[segments.length-1].end.slice(); }
+  function pushSegment(tCode,dir,L,labelIdx,drawCode,countJoint){
+    var start=getCurrentEnd(); var end=[ start[0]+dir[0]*L, start[1]+dir[1]*L, start[2]+dir[2]*L ];
+    segments.push({tCode, start, end, drawCode:drawCode||tCode, countJoint: (countJoint!==false) });
+    if(labelIdx!=null){
+      var mid=[(start[0]+end[0])/2,(start[1]+end[1])/2,(start[2]+end[2])/2];
+      marks.push([labelIdx,mid[0],mid[1],mid[2]]);
+    }
+  }
+
+  function addItem(){
+    try{
+      var t=itemTypeEl.value; var idx=items.length+1;
+      var ovec=(ORIENTS[orientEl.value]||[1,0,0]).slice();
+
+      function placeLinear(name,L,W,xcgLocal,tCode){
+        L=Math.max(0, Number(L)||0); if(xcgLocal==null) xcgLocal=L/2;
+        items.push({name,length:L,weight:W,xcg_local:xcgLocal,tCode,orientVec:ovec});
+        addItemSummary(idx+'. '+name+' L='+L.toFixed(1)+' in, W='+W.toFixed(1)+' lb');
+        rebuildGeometry();
+      }
+
+      if(t==='P'){ var L=Number(lenInEl.value)||0, wpi=Number(wpiEl.value)||W_PER_IN_DEFAULT; placeLinear('24\" pipe (per-inch)',L,wpi*L,null,'P'); }
+      else if(t==='X'){ var Lx=Number(lenInEl.value)||0, wpiX=Number(wpiEl.value)||W_PER_IN_DEFAULT; placeLinear('Custom per-inch',Lx,wpiX*Lx,null,'X'); }
+      else if(t==='Y'){ var WY=Number(fixedWEl.value)||0, LY=Number(fixedLEl.value)||0; placeLinear('Custom fixed',LY,WY,null,'Y'); }
+      else if(t==='V'){ placeLinear('24\" valve (regular)',L_VALVE_STD,W_VALVE_BODY,L_VALVE_STD/2,'V'); }
+      else if(t==='E'){ placeLinear('24\" 90° elbow',S_EL90,W_EL90,S_EL90/2,'E'); }
+      else if(t==='F'){ placeLinear('24\" 45° elbow',S_EL45,W_EL45,S_EL45/2,'F'); }
+      else if(t==='T'){ placeLinear('24\" tee (plain)',L_TEE,W_TEE_BODY,L_TEE/2,'T'); }
+      else if(t==='W'){ var WW=W_TEE_BODY+W_VALVE_BODY; placeLinear('24\" tee with valve',L_TEE,WW,L_TEE/2,'W'); }
+      else if(t==='G'){ var WG=W_EL90+W_VALVE_BODY; placeLinear('Single 90 with valve',S_EL90,WG,S_EL90/2,'G'); }
+
+    }catch(err){ debugDiv.textContent='debug: Add item failed: '+(err?.message||err); }
+  }
+
+  function rebuildGeometry(){
+    segments=[]; marks=[];
+    if(items.length===0) return;
+    var dir = items[0].orientVec.slice();
+    for(var i=0;i<items.length;i++){
+      var it=items[i];
+      var nextDir = (i<items.length-1)? items[i+1].orientVec.slice() : dir.slice();
+      if(it.tCode==='E' || it.tCode==='G'){
+        var L=it.length, half=L/2;
+        pushSegment(it.tCode, dir, half, i+1, it.tCode, true);
+        var turnOut = vEq(nextDir,dir)? orthAxisTo(dir) : nextDir.slice();
+        pushSegment(it.tCode, turnOut, half, null, it.tCode, false);
+        dir = turnOut.slice();
+      }else if(it.tCode==='T' || it.tCode==='W'){
+        pushSegment(it.tCode, dir, it.length, i+1, it.tCode, true);
+        var stubDir = vEq(nextDir,dir)? orthAxisTo(dir) : nextDir.slice();
+        var curEnd = getCurrentEnd().slice();
+        var midBack = [-dir[0]*it.length/2, -dir[1]*it.length/2, -dir[2]*it.length/2];
+        var teeMidStart = [curEnd[0]+midBack[0], curEnd[1]+midBack[1], curEnd[2]+midBack[2]];
+        segments[segments.length-1].end = teeMidStart.slice();
+        pushSegment('T_stub', stubDir, it.length/2, null, 'T', false);
+        segments[segments.length-1].end = curEnd.slice();
+      }else{
+        pushSegment(it.tCode, dir, it.length, i+1, it.tCode, true);
+        if(!vEq(it.orientVec, dir)){ dir = it.orientVec.slice(); }
+      }
+    }
+    rebuildForbidden();
+  }
+
+  function rebuildForbidden(){
+    _forbidden={X:[],Y:[],Z:[]};
+    function addF(axis, a, b){ if(a>b){var t=a;a=b;b=t;} _forbidden[axis].push([a,b]); }
+    for(var i=0;i<segments.length;i++){
+      var s=segments[i];
+      if(!s.countJoint) continue;
+      [['X',0],['Y',1],['Z',2]].forEach(function(t){
+        var p=s.start[t[1]]; addF(t[0], p-COUP_EXCLUDE_HALF, p+COUP_EXCLUDE_HALF);
+      });
+      [['X',0],['Y',1],['Z',2]].forEach(function(t){
+        var p=s.end[t[1]]; addF(t[0], p-COUP_EXCLUDE_HALF, p+COUP_EXCLUDE_HALF);
+      });
+    }
+    ['X','Y','Z'].forEach(function(A){
+      var arr=_forbidden[A]; if(arr.length<=1) return;
+      arr.sort(function(p,q){return p[0]-q[0];});
+      var merged=[arr[0]];
+      for(var i=1;i<arr.length;i++){
+        var last=merged[merged.length-1], cur=arr[i];
+        if(cur[0] <= last[1]+1e-6){ last[1]=Math.max(last[1],cur[1]); }
+        else merged.push(cur);
+      }
+      _forbidden[A]=merged;
+    });
+  }
+
+  function axisExt(sel){
+    var arr=[]; for(var k=0;k<segments.length;k++){ arr.push(segments[k].start[sel],segments[k].end[sel]); }
+    if(arr.length===0) arr=[0];
+    var min=Math.min.apply(null,arr), max=Math.max.apply(null,arr);
+    return {min:min,max:max,span:(max-min)};
+  }
+
+  function computeCG(){
+    var totalW=0, sumX=0, sumY=0, sumZ=0;
+    for(var i=0;i<items.length;i++){
+      var it=items[i];
+      var found=null;
+      for(var s=0;s<segments.length;s++){
+        var sg=segments[s];
+        if(sg.drawCode===it.tCode && sg.countJoint){ found=sg; break; }
+      }
+      var m = found? [(found.start[0]+found.end[0])/2,(found.start[1]+found.end[1])/2,(found.start[2]+found.end[2])/2] : [0,0,0];
+      totalW += it.weight; sumX += it.weight*m[0]; sumY += it.weight*m[1]; sumZ += it.weight*m[2];
+    }
+    for(var j=0;j<segments.length;j++){
+      var s=segments[j]; if(!s.countJoint) continue;
+      totalW += W_COUP; sumX += W_COUP*s.end[0]; sumY += W_COUP*s.end[1]; sumZ += W_COUP*s.end[2];
+    }
+    return { X:(totalW?sumX/totalW:0), Y:(totalW?sumY/totalW:0), Z:(totalW?sumZ/totalW:0), W: totalW };
+  }
+
+  function chooseAxes(ext, pickAxesSel, pickMode){
+    if(pickAxesSel==='X' || pickAxesSel==='Y' || pickAxesSel==='Z'){ return [pickAxesSel]; }
+    if(pickAxesSel==='XY' || pickAxesSel==='XZ' || pickAxesSel==='YZ'){ return pickAxesSel.split(''); }
+    var spans=[['X',ext.X.span],['Y',ext.Y.span],['Z',ext.Z.span]].sort(function(a,b){return b[1]-a[1];});
+    if(pickMode==='2'){ return [spans[0][0]]; }
+    var axes=[]; for(var s=0;s<spans.length && axes.length<2;s++){ if(spans[s][1]>0) axes.push(spans[s][0]); }
+    if(axes.length===0) axes=['X']; return axes;
+  }
+
+  function adjustAwayFromForbidden(axis, x){
+    var forb = _forbidden[axis];
+    for(var i=0;i<forb.length;i++){
+      var a=forb[i][0], b=forb[i][1];
+      if(x>=a-1e-6 && x<=b+1e-6){
+        var nx = (Math.abs(x-a)<=Math.abs(b-x)? a-1e-6 : b+1e-6);
+        return nx;
+      }
+    }
+    return x;
+  }
+
+  function balancedPoints(axis, ex, cgA){
+    var left = (ex.min + cgA)/2;
+    var right = (cgA + ex.max)/2;
+    if(right<=left){ right = left + 1; }
+    left  = Math.max(ex.min, Math.min(ex.max, left));
+    right = Math.max(ex.min, Math.min(ex.max, right));
+    left  = adjustAwayFromForbidden(axis, left);
+    right = adjustAwayFromForbidden(axis, right);
+    if(right<=left){ right = left + 1; }
+    return {left:left, right:right, ex:ex};
+  }
+
+  function computeAndDraw(){
+    if(items.length===0){ alert('Add at least one item.'); return; }
+
+    var pickMode = el('pickMode').value;
+    var pickAxesSel = el('pickAxes').value;
+    var usePrevCoupling = el('togglePrevCoupling').checked;
+
+    var cg = computeCG();
+    var ext={ X:axisExt(0), Y:axisExt(1), Z:axisExt(2) };
+    var axes = chooseAxes(ext, pickAxesSel, pickMode);
+
+    var hookX = parseFloat(el('hookX').value);
+    if(!(hookX===0 || !!hookX)){ hookX = cg.X; }
+
+    var picksets = axes.map(function(axis){
+      var ex=ext[axis];
+      if(pickMode==='2'){
+        var spacing = 72;
+        var left = Math.max(ex.min, Math.min(ex.max - spacing, cg[axis] - spacing/2));
+        var right = Math.max(ex.min, Math.min(ex.max, left + spacing));
+        return {mode:'2', axis:axis, picks:[left,right], ex:ex};
+      }else{
+        var bp = balancedPoints(axis, ex, cg[axis]);
+        return {mode:'4', axis:axis, picks:[bp.left,bp.right], ex:bp.ex, autoBalanced:true};
+      }
+    });
+
+    function hypot2(a,b){ return Math.sqrt(a*a + b*b); }
+    var sling = { left:[], right:[] };
+    picksets.forEach(function(ps){
+      var axis=ps.axis;
+      if(axis==='X'){
+        sling.left.push({axis:'X', inches: Math.abs(hookX - ps.picks[0])});
+        sling.right.push({axis:'X', inches: Math.abs(hookX - ps.picks[1])});
+      }
+      if(axis==='Y'){
+        sling.left.push({axis:'Y', inches: hypot2(Math.abs(hookX - 0), Math.abs(cg.Y - ps.picks[0]))});
+        sling.right.push({axis:'Y', inches: hypot2(Math.abs(hookX - 0), Math.abs(cg.Y - ps.picks[1]))});
+      }
+      if(axis==='Z'){
+        sling.left.push({axis:'Z', inches: hypot2(Math.abs(hookX - 0), Math.abs(cg.Z - ps.picks[0]))});
+        sling.right.push({axis:'Z', inches: hypot2(Math.abs(hookX - 0), Math.abs(cg.Z - ps.picks[1]))});
+      }
+    });
+
+    function sumInches(list){ return list.reduce((a,p)=>a+p.inches,0); }
+    var leftTotalIn = sumInches(sling.left);
+    var rightTotalIn = sumInches(sling.right);
+
+    var html='';
+    html += '<h3>Rigging Summary</h3><ul>';
+    html += '<li>Total weight: <b>'+cg.W.toFixed(1)+' lb</b></li>';
+    html += '<li>CG (in): X=<b>'+cg.X.toFixed(2)+'</b>, Y=<b>'+cg.Y.toFixed(2)+'</b>, Z=<b>'+cg.Z.toFixed(2)+'</b></li>';
+    html += '<li>Hook X (in): <b>'+hookX.toFixed(2)+'</b></li>';
+    html += '<li>Distance reference: <b>'+(usePrevCoupling?'Previous coupling':'Min axis edge')+'</b></li>';
+    html += '</ul>';
+
+    html += '<h3>Choker pick points</h3><ul>';
+    picksets.forEach(function(ps){
+      html += '<li>'+ps.axis+' axis: Left '+(ps.picks[0]-ps.ex.min).toFixed(1)+'" • Right '+(ps.picks[1]-ps.ex.min).toFixed(1)+'"</li>';
+    });
+    html += '</ul>';
+
+    function toFeetStr(inches){ return (inches/12).toFixed(1) + ' ft'; }
+    function legList(list){ return list.map(p=> p.axis+': '+toFeetStr(p.inches)).join(' &nbsp;•&nbsp; '); }
+
+    html += '<h3>Basket sling lengths (per choker, from top pulley)</h3><ul>';
+    html += '<li><span class="pill left">Left</span> '+legList(sling.left)+' &nbsp;|&nbsp; <b>Total:</b> '+toFeetStr(leftTotalIn)+'</li>';
+    html += '<li><span class="pill right">Right</span> '+legList(sling.right)+' &nbsp;|&nbsp; <b>Total:</b> '+toFeetStr(rightTotalIn)+'</li>';
+    html += '</ul>';
+
+    var roll_deg = (PIPE_R_IN>0)? (Math.asin(Math.max(-1,Math.min(1, cg.Y/PIPE_R_IN)))*180/Math.PI) : 0;
+    var roll_side=cg.Y>0?'toward +Y':(cg.Y<0?'toward -Y':'no roll needed');
+    var arc_in=PIPE_R_IN*(Math.abs(roll_deg)*Math.PI/180);
+    html += '<h3>Roll</h3><ul>';
+    html += '<li><span class="pill roll">Roll</span> chokers: ~'+roll_deg.toFixed(1)+'° '+roll_side+'</li>';
+    html += '<li><span class="pill roll">Arc offset per choker:</span> '+((arc_in/12).toFixed(2))+' ft</li>';
+    html += '</ul>';
+
+    summaryDiv.innerHTML = html;
+
+    drawSheet(picksets, {usePrevCoupling, hookX, cg, sling});
+    el('downloadBtn').disabled=false;
+  }
+
+  function drawSheet(picksets, opts){
+    var usePrevCoupling=opts.usePrevCoupling, hookX=opts.hookX, cg=opts.cg, sling=opts.sling;
+    ctx=setupCanvas(sheet, 1000, 1200);
+    var W=1000,H=1200,pad=28;
+    var secH=Math.floor((H-pad*4)/2);
+    var planRect={x:pad,y:pad,w:W-2*pad,h:secH};
+    var elevRect={x:pad,y:pad*2+secH,w:W-2*pad,h:secH};
+
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+
+    var verts=[[0,0,0]];
+    for(var i=0;i<segments.length;i++){ verts.push( segments[i].end.slice() ); }
+    var px=verts.map(v=>v[0]), py=verts.map(v=>v[1]), pz=verts.map(v=>v[2]);
+
+    drawProjection(planRect,px,py,'Plan (X–Y)',picksets,'XY',usePrevCoupling,hookX,cg,sling);
+    drawProjection(elevRect,px,pz,'Elevation (X–Z)',picksets,'XZ',usePrevCoupling,hookX,cg,sling);
+  }
+
+  function drawProjection(rect,px,py,title,picksets,plane,usePrevCoupling,hookX,cg,sling){
+    var minX=Math.min.apply(null, px.concat([0])), maxX=Math.max.apply(null, px.concat([1]));
+    var minY=Math.min.apply(null, py.concat([-1])), maxY=Math.max.apply(null, py.concat([1]));
+
+    var pad=46;
+    var sx=(rect.w-pad*2)/((maxX-minX)||1);
+    var sy=(rect.h-pad*2)/((maxY-minY)||1);
+    var s=Math.min(sx,sy);
+    function mapX(x){ return rect.x+pad+(x-minX)*s; }
+    function mapY(y){ return rect.y+rect.h-pad-(y-minY)*s; }
+
+    ctx.fillStyle='#000'; ctx.font='20px system-ui';
+    ctx.fillText(title, rect.x, rect.y-6);
+
+    ctx.lineWidth=2;
+    ctx.strokeStyle=COLORS.axisX; ctx.beginPath(); ctx.moveTo(mapX(minX), mapY(0)); ctx.lineTo(mapX(maxX), mapY(0)); ctx.stroke();
+    ctx.strokeStyle=(plane==='XY')?COLORS.axisY:COLORS.axisZ;
+    var x0=mapX(0); ctx.beginPath(); ctx.moveTo(x0,mapY(minY)); ctx.lineTo(x0,mapY(maxY)); ctx.stroke();
+
+    var thickness=Math.min(30, Math.max(8, s*24*0.6));
+    ctx.lineCap='round';
+
+    for(var i=0;i<segments.length;i++){
+      var seg=segments[i];
+      var aX=seg.start[0], aY=(plane==='XY'? seg.start[1]:seg.start[2]);
+      var bX=seg.end[0],   bY=(plane==='XY'? seg.end[1]  :seg.end[2] );
+      ctx.strokeStyle=COLORS.pipeBand; ctx.lineWidth=thickness; ctx.beginPath(); ctx.moveTo(mapX(aX),mapY(aY)); ctx.lineTo(mapX(bX),mapY(bY)); ctx.stroke();
+    }
+    for(var j=0;j<segments.length;j++){
+      var sg=segments[j];
+      var aX2=sg.start[0], aY2=(plane==='XY'? sg.start[1]:sg.start[2]);
+      var bX2=sg.end[0],   bY2=(plane==='XY'? sg.end[1]  :sg.end[2] );
+      var clr = COLORS[sg.drawCode]||COLORS.centerline;
+      ctx.strokeStyle=clr; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(mapX(aX2),mapY(aY2)); ctx.lineTo(mapX(bX2),mapY(bY2)); ctx.stroke();
+    }
+
+    ctx.fillStyle='#000'; ctx.font='14px system-ui';
+    for(var m=0;m<marks.length;m++){
+      var mk=marks[m];
+      var x=mk[1], y=(plane==='XY'? mk[2] : mk[3]);
+      ctx.fillText(String(mk[0]), mapX(x)+4, mapY(y)-16);
+    }
+
+    var hookY = (plane==='XY')? cg.Y : cg.Z;
+    ctx.fillStyle='#0a7'; ctx.beginPath(); ctx.arc(mapX(hookX), mapY(hookY), 5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='#0a7'; ctx.font='12px system-ui'; ctx.fillText('Hook', mapX(hookX)+6, mapY(hookY)-6);
+
+    var byAxis = {}; picksets.forEach(ps=>byAxis[ps.axis]=ps);
+
+    function labelSling(x,y,text,color){
+      ctx.fillStyle=color; ctx.font='12px system-ui';
+      ctx.fillText(text, x+8, y-18);
+    }
+
+    if(plane==='XY'){
+      if(byAxis.X){ var p=byAxis.X; var xL=p.picks[0];
+        drawPickMarker(mapX(xL),mapY(0),COLORS.pickLeft,'L'); drawLeader(mapX(hookX),mapY(hookY),mapX(xL),mapY(0),COLORS.pickLeft);
+        var leg = sling.left.find(e=>e.axis==='X'); if(leg) labelSling(mapX(xL),mapY(0), toFeetStr(leg.inches), COLORS.pickLeft);
+      }
+      if(byAxis.Y){ var p=byAxis.Y; var yL=p.picks[0];
+        drawPickMarker(mapX(0),mapY(yL),COLORS.pickLeft,'L'); drawLeader(mapX(hookX),mapY(hookY),mapX(0),mapY(yL),COLORS.pickLeft);
+        var leg2 = sling.left.find(e=>e.axis==='Y'); if(leg2) labelSling(mapX(0),mapY(yL), toFeetStr(leg2.inches), COLORS.pickLeft);
+      }
+    }else{
+      if(byAxis.X){ var p=byAxis.X; var xL2=p.picks[0];
+        drawPickMarker(mapX(xL2),mapY(0),COLORS.pickLeft,'L'); drawLeader(mapX(hookX),mapY(hookY),mapX(xL2),mapY(0),COLORS.pickLeft);
+        var legx = sling.left.find(e=>e.axis==='X'); if(legx) labelSling(mapX(xL2),mapY(0), toFeetStr(legx.inches), COLORS.pickLeft);
+      }
+      if(byAxis.Z){ var p=byAxis.Z; var zL=p.picks[0];
+        drawPickMarker(mapX(0),mapY(zL),COLORS.pickLeft,'L'); drawLeader(mapX(hookX),mapY(hookY),mapX(0),mapY(zL),COLORS.pickLeft);
+        var legz = sling.left.find(e=>e.axis==='Z'); if(legz) labelSling(mapX(0),mapY(zL), toFeetStr(legz.inches), COLORS.pickLeft);
+      }
+    }
+
+    if(plane==='XY'){
+      if(byAxis.X){ var p=byAxis.X; var xR=p.picks[1];
+        drawPickMarker(mapX(xR),mapY(0),COLORS.pickRight,'R'); drawLeader(mapX(hookX),mapY(hookY),mapX(xR),mapY(0),COLORS.pickRight);
+        var legr = sling.right.find(e=>e.axis==='X'); if(legr) labelSling(mapX(xR),mapY(0), toFeetStr(legr.inches), COLORS.pickRight);
+      }
+      if(byAxis.Y){ var p=byAxis.Y; var yR=p.picks[1];
+        drawPickMarker(mapX(0),mapY(yR),COLORS.pickRight,'R'); drawLeader(mapX(hookX),mapY(hookY),mapX(0),mapY(yR),COLORS.pickRight);
+        var legr2 = sling.right.find(e=>e.axis==='Y'); if(legr2) labelSling(mapX(0),mapY(yR), toFeetStr(legr2.inches), COLORS.pickRight);
+      }
+    }else{
+      if(byAxis.X){ var p=byAxis.X; var xR2=p.picks[1];
+        drawPickMarker(mapX(xR2),mapY(0),COLORS.pickRight,'R'); drawLeader(mapX(hookX),mapY(hookY),mapX(xR2),mapY(0),COLORS.pickRight);
+        var legrx = sling.right.find(e=>e.axis==='X'); if(legrx) labelSling(mapX(xR2),mapY(0), toFeetStr(legrx.inches), COLORS.pickRight);
+      }
+      if(byAxis.Z){ var p=byAxis.Z; var zR=p.picks[1];
+        drawPickMarker(mapX(0),mapY(zR),COLORS.pickRight,'R'); drawLeader(mapX(hookX),mapY(hookY),mapX(0),mapY(zR),COLORS.pickRight);
+        var legrz = sling.right.find(e=>e.axis==='Z'); if(legrz) labelSling(mapX(0),mapY(zR), toFeetStr(legrz.inches), COLORS.pickRight);
+      }
+    }
+
+    ctx.strokeStyle='#cfd4d9'; ctx.lineWidth=1; ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
+
+    function drawPickMarker(x,y,color,label){
+      ctx.strokeStyle=color; ctx.fillStyle=color;
+      ctx.beginPath(); ctx.moveTo(x,y-16); ctx.lineTo(x,y-2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x,y-2); ctx.lineTo(x-6,y-10); ctx.moveTo(x,y-2); ctx.lineTo(x+6,y-10); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label,x+6,y-18);
+    }
+  }
+
+  function wireOnce(){
+    document.getElementById('addBtn').addEventListener('click', addItem);
+    document.getElementById('clearBtn').addEventListener('click', resetAll);
+    document.getElementById('removeLastBtn').addEventListener('click', removeLast);
+    document.getElementById('computeBtn').addEventListener('click', computeAndDraw);
+    document.getElementById('downloadBtn').addEventListener('click', function(){
+      var a=document.createElement('a'); var ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+      a.download=ts+'_rigging.png'; a.href=document.getElementById('sheet').toDataURL('image/png'); a.click();
+    });
+  }
+
+  window.addEventListener('load', function(){
+    pickModeEl=document.getElementById('pickMode'); pickAxesEl=document.getElementById('pickAxes'); togglePrevCouplingEl=document.getElementById('togglePrevCoupling'); hookXEl=document.getElementById('hookX');
+    itemTypeEl=document.getElementById('itemType'); orientEl=document.getElementById('orient'); lenRow=document.getElementById('lenRow'); wpiEl=document.getElementById('wpi'); wpiLabel=document.getElementById('wpiLabel'); lenInEl=document.getElementById('lenIn');
+    fixedRow=document.getElementById('fixedRow'); fixedWEl=document.getElementById('fixedW'); fixedLEl=document.getElementById('fixedL'); single90Row=document.getElementById('single90Row');
+    itemsDiv=document.getElementById('items'); summaryDiv=document.getElementById('summary'); sheet=document.getElementById('sheet'); debugDiv=document.getElementById('debug');
+    setupCanvas(sheet);
+    itemTypeEl.addEventListener('change', updateDetailRows);
+    updateDetailRows();
+    wireOnce();
+    debugDiv.textContent='debug: ready (v10.7)';
+  });
+}
+</script>
+</body>
+</html>
