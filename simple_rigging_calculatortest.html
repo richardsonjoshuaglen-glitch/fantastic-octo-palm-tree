@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Simple COG Rigging Calculator</title>
+<style>
+  :root{
+    --bg:#ffffff; --ink:#111; --panel:#f6f8fa; --border:#e9ecef; --accent:#0d6efd;
+    --pickL:#ffd60a; --pickR:#32cd32; --roll:#5bc0ff;
+  }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:16px; color:var(--ink); background:var(--bg); }
+  h1 { font-size:20px; margin:0 0 10px; display:flex; align-items:center; gap:10px;}
+  .badge{display:inline-block; padding:2px 8px; border-radius:999px; background:#d1e7dd; color:#0f5132; font-weight:700; font-size:12px;}
+  fieldset { border:1px solid #ccc; border-radius:10px; margin:10px 0; padding:10px 12px; }
+  legend { padding:0 6px; font-weight:600; }
+  label { display:block; margin:6px 0 2px; font-size:14px; }
+  select, input[type="number"] { width:100%; font-size:16px; padding:10px 12px; box-sizing:border-box; border-radius:8px; border:1px solid #cfd4d9; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .row3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+  .btn { display:inline-block; padding:10px 12px; margin:8px 6px 0 0; border-radius:10px; background:var(--accent); color:#fff; border:none; font-size:16px; cursor:pointer;}
+  .btn.secondary{ background:#6c757d; }
+  .items{ margin-top:6px;}
+  .item{ padding:8px; border:1px dashed #999; border-radius:8px; margin-bottom:8px; font-size:14px;}
+  .out{ background:var(--panel); padding:12px; border-radius:10px; border:1px solid var(--border); line-height:1.5; font-size:15px;}
+  .out h3{ margin:6px 0; font-size:16px;}
+  .pill{ display:inline-block; padding:2px 8px; border-radius:999px; font-weight:600; font-size:12px; color:#000;}
+  .pill.left{ background:var(--pickL); } .pill.right{ background:var(--pickR); } .pill.roll{ background:var(--roll); }
+  .muted{ color:#555; font-size:12px; }
+  #sheet{ width:100%; max-width:1000px; background:#fff; border:1px solid #ddd; border-radius:8px; display:block;}
+  #debug{ margin-top:6px; font-size:12px; color:#b00020; white-space:pre-wrap; border:1px dashed #ddd; padding:6px; border-radius:6px;}
+  .bigcall { font-size:18px; font-weight:800; padding:8px 10px; border-radius:10px; background:#fff3cd; border:1px solid #ffe69c; display:inline-block; }
+</style>
+</head>
+<body>
+<h1>Rigging CG Helper — Simple 2-Pick <span class="badge" id="badge">Ready</span></h1>
+
+<!-- OUTPUT FIRST -->
+<fieldset>
+  <legend>Output (quick)</legend>
+  <div id="summary" class="out">Add items and click “Compute + Draw”.</div>
+  <div class="muted">Legend: <span class="pill left">Left pick</span> <span class="pill right">Right pick</span> · “Left Edge” = minimum coordinate on the chosen axis for that pick.</div>
+</fieldset>
+
+<!-- PICK SETUP -->
+<fieldset>
+  <legend>Pick setup (2 picks, spacing is fluid)</legend>
+  <div class="row">
+    <label>Left pick axis
+      <select id="axisL">
+        <option value="AUTO" selected>Auto (largest span)</option>
+        <option value="X">X — Left → Right</option>
+        <option value="Y">Y — Toward / Away</option>
+        <option value="Z">Z — Up / Down</option>
+      </select>
+    </label>
+    <label>Right pick axis
+      <select id="axisR">
+        <option value="AUTO" selected>Auto (largest span)</option>
+        <option value="X">X — Left → Right</option>
+        <option value="Y">Y — Toward / Away</option>
+        <option value="Z">Z — Up / Down</option>
+      </select>
+    </label>
+  </div>
+  <div class="row">
+    <label>Nominal pick spacing (in, fluid – CG & axes take precedence)
+      <input id="pickSpacing" type="number" inputmode="decimal" value="72">
+    </label>
+    <label>Coupling avoidance (in) — keep picks ≥ this from couplings
+      <input id="couplingClear" type="number" inputmode="decimal" value="2">
+    </label>
+  </div>
+  <div class="row">
+    <label>Pipe OD (for roll info; in)
+      <input id="pipeOD" type="number" inputmode="decimal" value="24">
+    </label>
+    <div></div>
+  </div>
+  <div class="muted">Avoids <b>couplings</b> only (explicit and at <i>every joint</i>) by the chosen clearance. Picks are placed about CG and nudged to clear couplings; spacing is adjusted as needed.</div>
+</fieldset>
+
+<!-- ROLL HELPER -->
+<fieldset>
+  <legend>Roll helper (operator-proof)</legend>
+  <div class="row">
+    <label>Target roll to set on the pipe (degrees)
+      <input id="targetRoll" type="number" inputmode="decimal" value="0">
+      <div class="muted">Positive = roll the pipe toward +Y (toward you). Negative = roll toward −Y (away).</div>
+    </label>
+    <div>
+      <button id="btnPlumb45" class="btn secondary" type="button">Set 45° for “plumb the 45° elbow face”</button>
+      <div class="muted">Use when you have a 90° turning X+ → Y− and a 45° in Y− whose face must be plumb. This sets +45°.</div>
+    </div>
+  </div>
+  <div class="muted">Note: The “CG roll” below is informational (from CG offset on a round). The “Target roll” above is what you actually tell the operator to set on the pipe.</div>
+</fieldset>
+
+<!-- ADD ITEMS -->
+<fieldset>
+  <legend>Add item</legend>
+  <div class="row">
+    <label>Item type
+      <select id="itemType">
+        <option value="P">24″ pipe (per-inch)</option>
+        <option value="V">24″ valve (regular)</option>
+        <option value="C">24″ coupling (weight only)</option>
+        <option value="E">24″ 90° elbow</option>
+        <option value="F">24″ 45° elbow</option>
+        <option value="T">24″ tee (plain)</option>
+        <option value="W">24″ tee with valve</option>
+        <option value="X">Custom per-inch</option>
+        <option value="Y">Custom fixed</option>
+      </select>
+    </label>
+    <label>Orientation (axis + layman direction)
+      <select id="orient">
+        <option value="A" selected>A — X+ (Left → Right)</option>
+        <option value="B">B — X− (Right → Left)</option>
+        <option value="C">C — Y+ (Toward)</option>
+        <option value="D">D — Y− (Away)</option>
+        <option value="E">E — Z+ (Up)</option>
+        <option value="F">F — Z− (Down)</option>
+      </select>
+    </label>
+  </div>
+  <div class="row" id="lenRow">
+    <label>Length (in)
+      <input id="lenIn" type="number" inputmode="decimal" value="60">
+    </label>
+    <label id="wpiLabel">Weight per inch (lb/in)
+      <input id="wpi" type="number" inputmode="decimal" value="8.2">
+    </label>
+  </div>
+  <div class="row" id="fixedRow" style="display:none">
+    <label>Total weight (lb)
+      <input id="fixedW" type="number" inputmode="decimal" value="0">
+    </label>
+    <label>Effective length along chosen axis (in)
+      <input id="fixedL" type="number" inputmode="decimal" value="0">
+    </label>
+  </div>
+
+  <button class="btn" id="addBtn" type="button">Add item</button>
+  <button class="btn secondary" id="clearBtn" type="button">Clear list</button>
+
+  <div class="items" id="items"></div>
+  <div id="debug">debug: ready</div>
+</fieldset>
+
+<button class="btn" id="computeBtn" type="button">Compute + Draw</button>
+<button class="btn secondary" id="downloadBtn" type="button" disabled>Download PNG</button>
+
+<!-- DRAWINGS -->
+<fieldset>
+  <legend>Drawings</legend>
+  <canvas id="sheet"></canvas>
+  <div class="muted">Plan (X–Y) and Elevation (X–Z). Each pick is shown on the zero line of <i>its own</i> axis.</div>
+</fieldset>
+
+<script>
+/* ---------- setup ---------- */
+(function(){ const b=document.getElementById('badge'); if(b) b.textContent='Ready'; })();
+function el(id){ return document.getElementById(id); }
+function setupCanvas(canvas, cssW, cssH){
+  cssW=cssW||1000; cssH=cssH||1000;
+  const dpr=window.devicePixelRatio||1;
+  canvas.style.width=cssW+'px'; canvas.style.height=cssH+'px';
+  canvas.width=Math.floor(cssW*dpr); canvas.height=Math.floor(cssH*dpr);
+  const ctx=canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.textBaseline='top'; return ctx;
+}
+const sheet=el('sheet'); let ctx=setupCanvas(sheet);
+
+/* ---------- constants ---------- */
+const W_PER_IN_DEFAULT=8.2;
+const W_EL90=475.0, S_EL90=36.0;
+const W_EL45=240.0, S_EL45=15.0;
+const W_COUP=115.0;
+const W_VALVE_BODY=451.0, L_VALVE_STD=12.0;
+const W_TEE_BODY=477.0, L_TEE=20.0;
+
+const COLORS={
+  axisX:'#d12222', axisY:'#2a9d2a', axisZ:'#1f6feb',
+  P:'#666666', E:'#2aa198', F:'#2aa198', V:'#ff9100', C:'#8e44ad', T:'#d33682', W:'#d33682', X:'#8d6e63', Y:'#8d6e63',
+  pickLeft:getComputedStyle(document.documentElement).getPropertyValue('--pickL')||'#ffd60a',
+  pickRight:getComputedStyle(document.documentElement).getPropertyValue('--pickR')||'#32cd32',
+  pipeBand:'rgba(100,100,100,0.18)', centerline:'#000', roll:'#5bc0ff'
+};
+const ORIENTS={ A:[ 1,0,0], B:[-1,0,0], C:[ 0,1,0], D:[ 0,-1,0], E:[ 0,0,1], F:[ 0,0,-1] };
+
+/* ---------- helpers ---------- */
+function r4(x){ return Math.round(x*4)/4; }
+function r8(x){ return Math.round(x*8)/8; }
+function fmtFtIn(x){
+  const v=r4(x), ft=Math.floor(v/12), rem=v-ft*12;
+  const whole=Math.floor(rem), frac=Math.round((rem-whole)*100)/100;
+  const map={"0":"", "0.25":"-1/4", "0.5":"-1/2", "0.75":"-3/4"};
+  const tag=(map.hasOwnProperty(String(frac))?map[String(frac)]:null);
+  const inch=(tag!==null)? (whole+tag+'"') : (rem.toFixed(2)+'"');
+  return ft? (ft+"' "+inch) : inch;
+}
+function addV(a,b){ return [a[0]+b[0],a[1]+b[1],a[2]+b[2]]; }
+function mulV(a,k){ return [a[0]*k,a[1]*k,a[2]*k]; }
+function dist3(a,b){ const dx=b[0]-a[0], dy=b[1]-a[1], dz=b[2]-a[2]; return Math.sqrt(dx*dx+dy*dy+dz*dz); }
+
+/* ---------- state ---------- */
+let items=[], segments=[], marks=[];
+
+/* ---------- UI wiring ---------- */
+window.addEventListener('load', ()=>{
+  el('itemType').addEventListener('change', updateDetailRows);
+  el('addBtn').addEventListener('click', addItem);
+  el('clearBtn').addEventListener('click', resetAll);
+  el('computeBtn').addEventListener('click', computeAndDraw);
+  el('downloadBtn').addEventListener('click', ()=>{
+    const a=document.createElement('a'); const ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    a.download=ts+'_rigging.png'; a.href=sheet.toDataURL('image/png'); a.click();
+  });
+  el('btnPlumb45').addEventListener('click', ()=>{ el('targetRoll').value=45; });
+  updateDetailRows();
+});
+
+function updateDetailRows(){
+  const t=el('itemType').value;
+  el('lenRow').style.display = (t==='P'||t==='X')?'grid':'none';
+  el('wpiLabel').style.display = (t==='P'||t==='X')?'block':'none';
+  el('fixedRow').style.display = (t==='Y')?'grid':'none';
+}
+
+/* ---------- geometry ---------- */
+function getEnd(){ return segments.length===0?[0,0,0]:segments[segments.length-1].end.slice(); }
+function pushSegment(tCode, dir, L, labelIdx){
+  const s=getEnd(), e=[s[0]+dir[0]*L, s[1]+dir[1]*L, s[2]+dir[2]*L];
+  segments.push({tCode, start:s, end:e});
+  const mid=[(s[0]+e[0])/2,(s[1]+e[1])/2,(s[2]+e[2])/2];
+  marks.push([labelIdx, mid[0], mid[1], mid[2]]);
+}
+function addItemRow(idx, txt){
+  const d=document.createElement('div'); d.className='item'; d.textContent=(idx+'. '+txt); el('items').appendChild(d);
+}
+
+/* Add items (inline valve removed) */
+function addItem(){
+  try{
+    const t=el('itemType').value, idx=items.length+1, d=ORIENTS[el('orient').value]||[1,0,0];
+
+    function placeLinear(name, L, W, xcgLocal, tCode){
+      L=Math.max(0, Number(L)||0);
+      if(xcgLocal==null) xcgLocal=L/2;
+      items.push({name, length:L, weight:W, xcg_local:xcgLocal, tCode});
+      pushSegment(tCode, d, L, idx);
+    }
+
+    if(t==='P'){
+      const L=Number(el('lenIn').value)||0, wpi=Number(el('wpi').value)||W_PER_IN_DEFAULT;
+      const W=wpi*L; placeLinear('24\" pipe', L, W, null, 'P');
+      addItemRow(idx, `Pipe ${L.toFixed(1)} in @ ${wpi} → ${W.toFixed(1)} lb`);
+
+    }else if(t==='X'){
+      const Lx=Number(el('lenIn').value)||0, wpiX=Number(el('wpi').value)||W_PER_IN_DEFAULT;
+      const WX=wpiX*Lx; placeLinear('Custom per-inch', Lx, WX, null, 'X');
+      addItemRow(idx, `Custom per-inch ${Lx.toFixed(1)} in @ ${wpiX} → ${WX.toFixed(1)} lb`);
+
+    }else if(t==='Y'){
+      const WY=Number(el('fixedW').value)||0, LY=Number(el('fixedL').value)||0;
+      placeLinear('Custom fixed', LY, WY, null, 'Y');
+      addItemRow(idx, `Custom fixed ${WY.toFixed(1)} lb, eff L=${LY.toFixed(1)} in`);
+
+    }else if(t==='V'){
+      const LV=L_VALVE_STD, WV=W_VALVE_BODY;
+      placeLinear('Valve (regular)', LV, WV, LV/2, 'V');
+      addItemRow(idx, `Valve reg L=${LV} in, W=${WV.toFixed(1)} lb`);
+
+    }else if(t==='C'){
+      items.push({name:'Coupling', length:0, weight:W_COUP, xcg_local:0, tCode:'C'});
+      pushSegment('C', d, 1, idx); // 1" stub, visual only
+      addItemRow(idx, `Coupling W=${W_COUP.toFixed(1)} lb`);
+
+    }else if(t==='E'){
+      placeLinear('90° elbow', S_EL90, W_EL90, S_EL90/2, 'E');
+      addItemRow(idx, `90° elbow L=${S_EL90} in, W=${W_EL90.toFixed(1)} lb`);
+
+    }else if(t==='F'){
+      placeLinear('45° elbow', S_EL45, W_EL45, S_EL45/2, 'F');
+      addItemRow(idx, `45° elbow L=${S_EL45} in, W=${W_EL45.toFixed(1)} lb`);
+
+    }else if(t==='T'){
+      placeLinear('Tee (plain)', L_TEE, W_TEE_BODY, L_TEE/2, 'T');
+      addItemRow(idx, `Tee L=${L_TEE} in, W=${W_TEE_BODY.toFixed(1)} lb`);
+
+    }else if(t==='W'){
+      const LW=L_TEE, WT=W_TEE_BODY+W_VALVE_BODY;
+      const xcg=(W_TEE_BODY*(LW/2)+W_VALVE_BODY*(LW/2))/WT;
+      placeLinear('Tee + valve', LW, WT, xcg, 'W');
+      addItemRow(idx, `Tee + valve L=${LW} in, W=${WT.toFixed(1)} lb`);
+    }
+
+    el('debug').textContent='debug: items='+items.length;
+  }catch(e){
+    el('debug').textContent='debug: addItem error: '+e;
+  }
+}
+
+function resetAll(){
+  items=[]; segments=[]; marks=[];
+  el('items').innerHTML='';
+  el('summary').innerHTML='Add items and click “Compute + Draw”.';
+  ctx.clearRect(0,0,sheet.width,sheet.height);
+  el('debug').textContent='debug: reset';
+}
+
+/* ---------- CG with auto couplings at joints (weight only) ---------- */
+function computeCG(){
+  let totalW=0, sum=[0,0,0];
+  for(let i=0;i<items.length;i++){
+    const w=items[i].weight, p=[marks[i][1],marks[i][2],marks[i][3]];
+    totalW+=w; sum=addV(sum, mulV(p,w));
+  }
+  // auto coupling at every joint (except before first)
+  for(let j=0;j<segments.length-1;j++){
+    const end=segments[j].end; totalW+=W_COUP; sum=addV(sum, mulV(end, W_COUP));
+  }
+  return {CG: totalW? mulV(sum,1/totalW):[0,0,0], totalW};
+}
+
+/* ---------- axis utilities ---------- */
+function extentAlong(axisIndex){
+  const arr=[]; for(let i=0;i<segments.length;i++){ arr.push(segments[i].start[axisIndex], segments[i].end[axisIndex]); }
+  const mn=Math.min.apply(null,arr), mx=Math.max.apply(null,arr);
+  return {min:mn, max:mx, span:mx-mn};
+}
+function chooseAxis(sel){
+  if(sel!=='AUTO') return sel;
+  const exX=extentAlong(0), exY=extentAlong(1), exZ=extentAlong(2);
+  let best='X', span=exX.span;
+  if(exY.span>span){ best='Y'; span=exY.span; }
+  if(exZ.span>span){ best='Z'; span=exZ.span; }
+  return best;
+}
+
+/* ---------- coupling avoidance windows (±clear around every coupling) ---------- */
+function couplingWindows(axisIndex, clear){
+  const windows=[];
+  // explicit coupling segments
+  for(let i=0;i<segments.length;i++){
+    const code=(items[i]||{}).tCode || segments[i].tCode;
+    if(code==='C'){
+      const s=segments[i].start[axisIndex], e=segments[i].end[axisIndex];
+      const pos=(s+e)/2; windows.push([pos-clear, pos+clear]);
+    }
+  }
+  // auto couplings at each joint
+  for(let j=0;j<segments.length-1;j++){
+    const end=segments[j].end; const pos=end[axisIndex];
+    windows.push([pos-clear, pos+clear]);
+  }
+  // merge overlaps
+  windows.sort((A,B)=>A[0]-B[0]);
+  const merged=[];
+  for(const w of windows){
+    if(!merged.length || w[0]>merged[merged.length-1][1]) merged.push(w.slice());
+    else merged[merged.length-1][1]=Math.max(merged[merged.length-1][1], w[1]);
+  }
+  return merged;
+}
+function allowed(x, windows){ for(const w of windows){ if(x>=w[0] && x<=w[1]) return false; } return true; }
+
+/* slide to nearest allowed spot within extents; spacing is advisory per-pick */
+function placeSinglePick(axisIndex, target, ext, windows){
+  const step=0.5, maxShift=ext.span+120;
+  if(target<ext.min) target=ext.min;
+  if(target>ext.max) target=ext.max;
+  if(allowed(target, windows)) return {pos:target, note:null};
+  for(let k=1; k*step<=maxShift; k++){
+    const d=k*step, a=target-d, b=target+d;
+    if(a>=ext.min && allowed(a, windows)) return {pos:a, note:'Nudged to clear coupling'};
+    if(b<=ext.max && allowed(b, windows)) return {pos:b, note:'Nudged to clear coupling'};
+  }
+  return {pos:Math.max(ext.min, Math.min(ext.max, target)), note:'Could not fully clear all couplings'};
+}
+
+/* ---------- compute & draw ---------- */
+function computeAndDraw(){
+  if(items.length===0){ alert('Add at least one item.'); return; }
+
+  const {CG,totalW}=computeCG();
+  const axisL = chooseAxis(el('axisL').value);
+  const axisR = chooseAxis(el('axisR').value);
+  const axL = (axisL==='X'?0:(axisL==='Y'?1:2));
+  const axR = (axisR==='X'?0:(axisR==='Y'?1:2));
+  const exL = extentAlong(axL), exR = extentAlong(axR);
+
+  let spacing = Number(el('pickSpacing').value)||72; if(spacing<0) spacing=0;
+  const targL = Math.max(exL.min, Math.min(exL.max, CG[axL] - spacing/2));
+  const targR = Math.max(exR.min, Math.min(exR.max, CG[axR] + spacing/2));
+
+  const clear = Math.max(0, Number(el('couplingClear').value)||2);
+  const winL = couplingWindows(axL, clear);
+  const winR = couplingWindows(axR, clear);
+
+  const placedL = placeSinglePick(axL, targL, exL, winL);
+  const placedR = placeSinglePick(axR, targR, exR, winR);
+
+  const minEdgeL = exL.min, minEdgeR = exR.min;
+
+  // CG-based informational roll
+  const R=(Number(el('pipeOD').value)||24)/2;
+  const y=CG[1], yclamped=Math.max(-R, Math.min(R, y));
+  const rollDegInfo = (R>0)? (Math.asin(yclamped/R)*180/Math.PI) : 0;
+  const rollSideInfo = (y>0?'toward +Y':(y<0?'toward -Y':'no roll needed'));
+  const arc = R * (Math.abs(rollDegInfo)*Math.PI/180);
+
+  // Operator target roll
+  let targetRoll = parseFloat(el('targetRoll').value);
+  if(!(targetRoll===0 || !!targetRoll)) targetRoll = 0; // default to 0 if blank
+
+  // Output
+  let html='';
+  html += '<h3>Totals</h3>';
+  html += '<div>Total weight: <b>'+totalW.toFixed(1)+' lb</b></div>';
+  html += '<div>CG (in): X=<b>'+CG[0].toFixed(2)+'</b>, Y=<b>'+CG[1].toFixed(2)+'</b>, Z=<b>'+CG[2].toFixed(2)+'</b></div>';
+  html += '<h3>Pick Points</h3>';
+  html += '<div><span class="pill left">Left pick</span> axis <b>'+axisL+'</b>: '+fmtFtIn(placedL.pos - minEdgeL)+' from Left Edge</div>';
+  html += '<div><span class="pill right">Right pick</span> axis <b>'+axisR+'</b>: '+fmtFtIn(placedR.pos - minEdgeR)+' from Left Edge</div>';
+  if(placedL.note || placedR.note){
+    html += '<div class="muted">'+[placedL.note, placedR.note].filter(Boolean).join(' · ')+'</div>';
+  }
+  html += '<h3>Roll</h3>';
+  html += '<div><span class="pill roll">CG roll (info)</span> ≈ '+rollDegInfo.toFixed(1)+'° '+rollSideInfo+'; circumference offset per choker ≈ '+(r8(arc)).toFixed(3).replace(/\\.000$/,'')+'"</div>';
+  html += '<div style="margin-top:8px;"><span class="bigcall">SET PIPE ROLL: '+(targetRoll>=0?'+':'')+targetRoll.toFixed(1)+'° (toward '+(targetRoll>=0?'+Y':'−Y')+')</span></div>';
+  html += '<div class="muted">This is the roll you give to the operator on the pipe. Use the preset above to “plumb the 45° face” (sets +45°).</div>';
+  el('summary').innerHTML = html;
+
+  drawAll({axisL, axisR, posL:placedL.pos, posR:placedR.pos, targetRoll, rollDegInfo});
+  el('downloadBtn').disabled=false;
+}
+
+/* ---------- drawing ---------- */
+function drawAll(picks){
+  ctx=setupCanvas(sheet, 1000, 1050);
+  const W=1000,H=1050,pad=28, secH=Math.floor((H-pad*4)/2);
+  const planRect={x:pad,y:pad,w:W-2*pad,h:secH};
+  const elevRect={x:pad,y:pad*2+secH,w:W-2*pad,h:secH};
+
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+
+  const verts=[[0,0,0]]; for(let i=0;i<segments.length;i++){ verts.push(segments[i].end.slice()); }
+  const px=verts.map(v=>v[0]), py=verts.map(v=>v[1]), pz=verts.map(v=>v[2]);
+
+  drawProjection(planRect, px, py, 'Plan (X–Y)', picks, 'XY');
+  drawProjection(elevRect, px, pz, 'Elevation (X–Z)', picks, 'XZ');
+
+  // Big roll dial at bottom for operator
+  drawRollDial(W/2, H-120, 90, picks.targetRoll);
+}
+
+function drawProjection(rect, px, py, title, picks, plane){
+  const minX=Math.min.apply(null, px.concat([0])), maxX=Math.max.apply(null, px.concat([1]));
+  const minY=Math.min.apply(null, py.concat([-1])), maxY=Math.max.apply(null, py.concat([1]));
+
+  const pad=46, sx=(rect.w-pad*2)/((maxX-minX)||1), sy=(rect.h-pad*2)/((maxY-minY)||1), s=Math.min(sx,sy);
+  const mapX=x=>rect.x+pad+(x-minX)*s;
+  const mapY=y=>rect.y+rect.h-pad-(y-minY)*s;
+
+  ctx.fillStyle='#000'; ctx.font='18px system-ui'; ctx.fillText(title, rect.x, rect.y-6);
+
+  // axes
+  ctx.lineWidth=2;
+  ctx.strokeStyle=COLORS.axisX; ctx.beginPath(); ctx.moveTo(mapX(minX), mapY(0)); ctx.lineTo(mapX(maxX), mapY(0)); ctx.stroke();
+  ctx.strokeStyle=(plane==='XY')?COLORS.axisY:COLORS.axisZ;
+  const x0=mapX(0); ctx.beginPath(); ctx.moveTo(x0, mapY(minY)); ctx.lineTo(x0, mapY(maxY)); ctx.stroke();
+
+  // pipe band & centerlines
+  const thickness=Math.min(28, Math.max(8, s*24*0.6)); ctx.lineCap='round';
+  segments.forEach(seg=>{
+    const sx0=mapX(seg.start[0]), sy0=mapY(plane==='XY'?seg.start[1]:seg.start[2]);
+    const sx1=mapX(seg.end[0]),   sy1=mapY(plane==='XY'?seg.end[1]:seg.end[2]);
+    ctx.strokeStyle=COLORS.pipeBand; ctx.lineWidth=thickness; ctx.beginPath(); ctx.moveTo(sx0,sy0); ctx.lineTo(sx1,sy1); ctx.stroke();
+  });
+  segments.forEach(seg=>{
+    const sx0=mapX(seg.start[0]), sy0=mapY(plane==='XY'?seg.start[1]:seg.start[2]);
+    const sx1=mapX(seg.end[0]),   sy1=mapY(plane==='XY'?seg.end[1]:seg.end[2]);
+    ctx.strokeStyle=COLORS[seg.tCode]||COLORS.centerline; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(sx0,sy0); ctx.lineTo(sx1,sy1); ctx.stroke();
+  });
+
+  // segment labels
+  ctx.fillStyle='#000'; ctx.font='13px system-ui';
+  for(let m=0;m<marks.length;m++){
+    const mk=marks[m]; const x=mk[1], y=(plane==='XY'?mk[2]:mk[3]);
+    ctx.fillText(String(mk[0]), mapX(x)+4, mapY(y)-16);
+  }
+
+  // Draw per-pick markers on its own axis zero line (in each projection)
+  function drawTopPill(x,y,w,h,color,label){
+    ctx.fillStyle=color; ctx.strokeStyle=color; const r=h/2;
+    ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+    ctx.arc(x+w-r,y+r,r,-Math.PI/2,Math.PI/2);
+    ctx.lineTo(x+r,y+h); ctx.arc(x+r,y+r,r,Math.PI/2,Math.PI*1.5);
+    ctx.closePath(); ctx.fill(); ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label, x+8, y+3);
+  }
+  function drawLeader(x1,y1,x2,y2,color){
+    ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  }
+  function drawPickMarker(x,y,color,label){
+    ctx.strokeStyle=color; ctx.fillStyle=color;
+    ctx.beginPath(); ctx.moveTo(x,y-14); ctx.lineTo(x,y-2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x,y-2); ctx.lineTo(x-6,y-8); ctx.moveTo(x,y-2); ctx.lineTo(x+6,y-8); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label, x+6, y-16);
+  }
+
+  function drawPick(axis, pos, color, label){
+    let pxCoord=0, pyCoord=0;
+    if(axis==='X'){ pxCoord=pos; pyCoord=0; }
+    else if(axis==='Y'){ if(plane==='XY'){ pxCoord=0; pyCoord=pos; } else { pxCoord=0; pyCoord=0; } }
+    else if(axis==='Z'){ if(plane==='XZ'){ pxCoord=0; pyCoord=pos; } else { pxCoord=0; pyCoord=0; } }
+
+    // caption pills at top
+    const topY=rect.y+10;
+    const pillX = (label==='L') ? rect.x+12 : rect.x+152;
+    const pillW = 140;
+    const pillText = (label==='L') ? ('Left pick ('+axis+')') : ('Right pick ('+axis+')');
+    drawTopPill(pillX, topY-8, pillW, 20, color, pillText);
+
+    // leader and marker
+    drawLeader(pillX + pillW/2, topY+12, mapX(pxCoord), mapY(pyCoord), color);
+    drawPickMarker(mapX(pxCoord), mapY(pyCoord), color, label);
+  }
+
+  drawPick(picks.axisL, picks.posL, COLORS.pickLeft, 'L');
+  drawPick(picks.axisR, picks.posR, COLORS.pickRight, 'R');
+
+  // border
+  ctx.strokeStyle='#cfd4d9'; ctx.lineWidth=1; ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
+}
+
+/* ---------- big roll dial ---------- */
+function drawRollDial(cx, cy, r, targetDeg){
+  // dial circle
+  ctx.strokeStyle = COLORS.roll; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke();
+  // zero line (no roll)
+  ctx.strokeStyle='#999'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy-r); ctx.stroke();
+  // target wedge
+  const a0 = -Math.PI/2; // up is 0°
+  const a1 = a0 + (targetDeg * Math.PI/180);
+  ctx.fillStyle='rgba(91,192,255,0.25)';
+  ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,a0,a1, targetDeg<0); ctx.closePath(); ctx.fill();
+  // target pointer
+  ctx.strokeStyle=COLORS.roll; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx + r*Math.cos(a1), cy + r*Math.sin(a1)); ctx.stroke();
+  // labels
+  ctx.fillStyle='#000'; ctx.font='14px system-ui'; ctx.fillText('Set Pipe Roll', cx-42, cy-r-22);
+  ctx.font='18px system-ui'; ctx.fillText((targetDeg>=0?'+':'')+targetDeg.toFixed(1)+'°', cx-24, cy+8);
+  ctx.font='12px system-ui'; ctx.fillText('(+Y)', cx-8, cy-r-12);
+  ctx.fillText('(−Y)', cx-12, cy+r+2);
+}
+
+</script>
+</body>
+</html>
