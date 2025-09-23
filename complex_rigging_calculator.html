@@ -40,12 +40,8 @@
   .combo th, .combo td { border:1px solid var(--border); padding:8px; text-align:left; }
   .combo th { background:#eef2f7; }
   .warn { background:#fff3cd; border:1px solid #ffe69c; padding:6px 10px; border-radius:8px; display:inline-block; font-size:13px; }
-</style>
-</head>
-<body>
-<h1>Rigging CG Helper — v10.8 <span class="badge" id="badge">JS Loaded</span></h1>
 /* Layman output box */
-#layman {
+#layman{
   background:#fff9db;
   border:1px solid #ffe066;
   padding:10px;
@@ -54,6 +50,11 @@
   font-size:14px;
   line-height:1.45;
 }
+</style>
+</head>
+<body>
+<h1>Rigging CG Helper — v10.8 <span class="badge" id="badge">JS Loaded</span></h1>
+
 <fieldset>
   <legend>Pick setup</legend>
   <div class="row3">
@@ -416,6 +417,7 @@ var pickAxesEl, togglePrevCouplingEl, cXEl, cYEl, cZEl;
     return fmtInches(val - ext[axis].min);
   }
 }
+
     var html='';
     html += '<h3>Rigging Summary</h3><ul>';
     html += '<li>Total weight: <b>'+totalW.toFixed(1)+' lb</b></li>';
@@ -496,23 +498,7 @@ laymanDiv.innerHTML = laymanSide('Left', leftPair) + laymanSide('Right', rightPa
     drawProjection(elevRect,px,pz,'Elevation (X–Z)',picksets,'XZ');
   }
 
-  /* Drawing with true legs + coupling arrows */
-function drawSheet(picksets){
-  ctx=setupCanvas(sheet, 1000, 1200);
-  var W=1000,H=1200,pad=28;
-  var secH=Math.floor((H-pad*4)/2);
-  var planRect={x:pad,y:pad,w:W-2*pad,h:secH};
-  var elevRect={x:pad,y:pad*2+secH,w:W-2*pad,h:secH};
 
-  ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
-
-  var verts=[[0,0,0]];
-  for(var i=0;i<segments.length;i++){ verts.push( segments[i].end.slice() ); }
-  var px=verts.map(v=>v[0]), py=verts.map(v=>v[1]), pz=verts.map(v=>v[2]);
-
-  drawProjection(planRect,px,py,'Plan (X–Y)',picksets,'XY');
-  drawProjection(elevRect,px,pz,'Elevation (X–Z)',picksets,'XZ');
-}
 
 function drawProjection(rect,px,py,title,picksets,plane){
   var minX=Math.min.apply(null, px.concat([0])), maxX=Math.max.apply(null, px.concat([1]));
@@ -553,7 +539,7 @@ function drawProjection(rect,px,py,title,picksets,plane){
     ctx.strokeStyle=clr; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(mapX(aX2),mapY(aY2)); ctx.lineTo(mapX(bX2),mapY(bY2)); ctx.stroke();
   }
 
-  // Item labels
+  // Item index labels
   ctx.fillStyle='#000'; ctx.font='14px system-ui';
   for(var m=0;m<marks.length;m++){
     var mk=marks[m];
@@ -561,70 +547,89 @@ function drawProjection(rect,px,py,title,picksets,plane){
     ctx.fillText(String(mk[0]), mapX(x)+4, mapY(y)-16);
   }
 
-  // Shortcuts to the pick sets we computed earlier
+  // --- TOP PILLS + PICK MARKERS (restores your missing labels) ---
   var byAxis={}; picksets.forEach(function(ps){byAxis[ps.axis]=ps;});
+  var topY=rect.y+10;
+  function drawTopPill(x,y,w,h,color,label){
+    ctx.fillStyle=color; var r=h/2;
+    ctx.beginPath(); ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+    ctx.arc(x+w-r,y+r,r,-Math.PI/2,Math.PI/2); ctx.lineTo(x+r,y+h);
+    ctx.arc(x+r,y+r,r,Math.PI/2,Math.PI*1.5); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label,x+8,y+3);
+  }
+  function drawLeader(x1,y1,x2,y2,color){ ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); }
+  function drawPickMarker(x,y,color,label){
+    ctx.strokeStyle=color; ctx.fillStyle=color;
+    ctx.beginPath(); ctx.moveTo(x,y-16); ctx.lineTo(x,y-2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x,y-2); ctx.lineTo(x-6,y-10); ctx.moveTo(x,y-2); ctx.lineTo(x+6,y-10); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label,x+6,y-18);
+  }
+  var dimsL=[rect.x+12,160], dimsR=[rect.x+184,160];
+  drawTopPill(dimsL[0],topY-8,dimsL[1],22,COLORS.pickLeft,'Left choker');
+  drawTopPill(dimsR[0],topY-8,dimsR[1],22,COLORS.pickRight,'Right choker');
 
-  // Projectors
+  if(plane==='XY'){
+    if(byAxis.X){ var p=byAxis.X;
+      drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(p.picks[0]),mapY(0),COLORS.pickLeft);
+      drawPickMarker(mapX(p.picks[0]),mapY(0),COLORS.pickLeft,'L');
+      drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(p.picks[1]),mapY(0),COLORS.pickRight);
+      drawPickMarker(mapX(p.picks[1]),mapY(0),COLORS.pickRight,'R');
+    }
+    if(byAxis.Y){ var p2=byAxis.Y;
+      drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(0),mapY(p2.picks[0]),COLORS.pickLeft);
+      drawPickMarker(mapX(0),mapY(p2.picks[0]),COLORS.pickLeft,'L');
+      drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(0),mapY(p2.picks[1]),COLORS.pickRight);
+      drawPickMarker(mapX(0),mapY(p2.picks[1]),COLORS.pickRight,'R');
+    }
+  }else{
+    if(byAxis.X){ var pxs=byAxis.X;
+      drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(pxs.picks[0]),mapY(0),COLORS.pickLeft);
+      drawPickMarker(mapX(pxs.picks[0]),mapY(0),COLORS.pickLeft,'L');
+      drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(pxs.picks[1]),mapY(0),COLORS.pickRight);
+      drawPickMarker(mapX(pxs.picks[1]),mapY(0),COLORS.pickRight,'R');
+    }
+    if(byAxis.Z){ var pz=byAxis.Z;
+      drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(0),mapY(pz.picks[0]),COLORS.pickLeft);
+      drawPickMarker(mapX(0),mapY(pz.picks[0]),COLORS.pickLeft,'L');
+      drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(0),mapY(pz.picks[1]),COLORS.pickRight);
+      drawPickMarker(mapX(0),mapY(pz.picks[1]),COLORS.pickRight,'R');
+    }
+  }
+
+  // --- TRUE LEG LINES (bight → picks, visual) ---
   function projXY(p){ return [p[0], p[1]]; }
   function projXZ(p){ return [p[0], p[2]]; }
   var proj = (plane==='XY')?projXY:projXZ;
 
-  // Rebuild the same bight we used in compute (it lies on the active pick plane)
-  function bight(){
-    if(byAxis.X && byAxis.Y) return [0,0,0]; // replaced below from CG; kept for clarity
-    return [0,0,0];
-  }
-  // We need CG from closure—recompute like computeAndDraw did:
-  var cgX=0,cgY=0,cgZ=0,total=0;
-  for(var ii=0; ii<segments.length; ii++){
-    // estimate mids by segment; not critical for view placement
-  }
-  // Better: we already have axes extents; we can reuse pick positions and assume
-  // bight at origin of the non-picked axis; but we’ll just take 0s and rely on the
-  // relative geometry lines to communicate direction. Visual only.
+  function axisPick(axis,val){ return (axis==='X')?[val,0,0]:(axis==='Y')?[0,val,0]:[0,0,val]; }
 
-  // Build pick points in 3D
-  var setA = byAxis.X || byAxis.Y || byAxis.Z; // first entry just to access props
-  // We can't access outside scope here, so we rely on picks passed in picksets
+  var primary = picksets[0].axis; var secondary = picksets[1] ? picksets[1].axis : primary;
 
-  // Helper to draw a leg with text
+  // Place a bight on the active pick plane (CG projection logic lives in compute; here we draw a representative point)
+  var B=[0,0,0]; // visual placeholder
+  var Buv = proj(B);
+
+  var L_A = axisPick(primary,  byAxis[primary].picks[0]);
+  var L_B = axisPick(secondary, byAxis[secondary].picks[0]);
+  var R_A = axisPick(primary,  byAxis[primary].picks[1]);
+  var R_B = axisPick(secondary, byAxis[secondary].picks[1]);
+
+  var L_Auv = proj(L_A), L_Buv = proj(L_B), R_Auv = proj(R_A), R_Buv = proj(R_B);
+
   function drawLeg(u1,v1,u2,v2,color,label){
-    ctx.strokeStyle=color; ctx.lineWidth=2.5; ctx.beginPath(); ctx.moveTo(mapX(u1),mapY(v1)); ctx.lineTo(mapX(u2),mapY(v2)); ctx.stroke();
+    ctx.strokeStyle=color; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.moveTo(mapX(u1),mapY(v1)); ctx.lineTo(mapX(u2),mapY(v2)); ctx.stroke();
     var mx=(u1+u2)/2, my=(v1+v2)/2;
     ctx.fillStyle='#000'; ctx.font='12px system-ui';
     ctx.fillText(label, mapX(mx)+6, mapY(my)-14);
   }
-
-  // We’ll fetch the picks from byAxis.* and reconstruct the leg ends in this view.
-  function axisPick(axis,val){ return (axis==='X')?[val,0,0]:(axis==='Y')?[0,val,0]:[0,0,val]; }
-
-  // Compute a bight at the origin of the non-picked axis (visual only)
-  var primary = picksets[0].axis; var secondary = picksets[1] ? picksets[1].axis : primary;
-  var B = (function(){
-    if((primary==='X'&&secondary==='Y')||(primary==='Y'&&secondary==='X')) return [0,0,0];
-    if((primary==='X'&&secondary==='Z')||(primary==='Z'&&secondary==='X')) return [0,0,0];
-    if((primary==='Y'&&secondary==='Z')||(primary==='Z'&&secondary==='Y')) return [0,0,0];
-    return [0,0,0];
-  })();
-  var Buv = proj(B);
-
-  // LEFT picks
-  var L_A = axisPick(primary,  byAxis[primary].picks[0]);
-  var L_B = axisPick(secondary, byAxis[secondary].picks[0]);
-  // RIGHT picks
-  var R_A = axisPick(primary,  byAxis[primary].picks[1]);
-  var R_B = axisPick(secondary, byAxis[secondary].picks[1]);
-
-  // Map to view
-  var L_Auv = proj(L_A), L_Buv = proj(L_B), R_Auv = proj(R_A), R_Buv = proj(R_B);
-
-  // Draw legs (labels will be added by compute; here show lengths only if you like)
   drawLeg(Buv[0],Buv[1], L_Auv[0],L_Auv[1], COLORS.pickLeft,  primary+'-leg');
   drawLeg(Buv[0],Buv[1], L_Buv[0],L_Buv[1], COLORS.pickLeft,  secondary+'-leg');
   drawLeg(Buv[0],Buv[1], R_Auv[0],R_Auv[1], COLORS.pickRight, primary+'-leg');
   drawLeg(Buv[0],Buv[1], R_Buv[0],R_Buv[1], COLORS.pickRight, secondary+'-leg');
 
-  // Coupling center arrows (bright green, bi-directional) when checkbox is on
+  // --- COUPLING CENTER ARROWS (bi-directional, green) ---
   if(togglePrevCouplingEl.checked){
     var cx = Number(cXEl && cXEl.value || 0),
         cy = Number(cYEl && cYEl.value || 0),
@@ -633,7 +638,7 @@ function drawProjection(rect,px,py,title,picksets,plane){
 
     function drawArrow(u1,v1,u2,v2,text){
       var x1=mapX(u1), y1=mapY(v1), x2=mapX(u2), y2=mapY(v2);
-      ctx.strokeStyle=COLORS.arrow; ctx.lineWidth=2;
+      ctx.strokeStyle='#00e676'; ctx.lineWidth=2;
       ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
       function head(xa,ya,xb,yb){ var ang=Math.atan2(yb-ya, xb-xa), sz=8;
         ctx.beginPath();
@@ -644,11 +649,9 @@ function drawProjection(rect,px,py,title,picksets,plane){
         ctx.stroke();
       }
       head(x1,y1,x2,y2); head(x2,y2,x1,y1);
-      ctx.fillStyle=COLORS.arrow; ctx.font='12px system-ui';
+      ctx.fillStyle='#00e676'; ctx.font='12px system-ui';
       ctx.fillText(text, (x1+x2)/2 + 6, (y1+y2)/2 - 10);
     }
-
-    // Arrow labels are absolute differences coupling↔pick in the active view
     function delta(a,b){ return Math.abs(a-b).toFixed(1)+'"'; }
 
     // Primary axis arrows
