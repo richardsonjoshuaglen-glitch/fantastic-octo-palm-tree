@@ -18,4 +18,631 @@
   label { display:block; margin:6px 0 2px; font-size:14px; }
   .inline { display:flex; align-items:center; gap:8px; }
   select, input[type="number"] { width:100%; font-size:16px; padding:10px 12px; box-sizing:border-box; border-radius:8px; border:1px solid #cfd4d9; }
-  .row { display:grid; grid
+  .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+  .row3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
+  .btn { display:inline-block; padding:10px 12px; margin:8px 6px 0 0; border-radius:10px; background:var(--accent); color:#fff; border:none; font-size:16px; cursor:pointer; }
+  .btn.secondary { background:#6c757d; }
+  .items { margin-top:6px; }
+  .item { padding:8px; border:1px dashed #999; border-radius:8px; margin-bottom:8px; font-size:14px; }
+  .out { background:var(--panel); padding:12px; border-radius:10px; border:1px solid var(--border); line-height:1.5; font-size:15px; }
+  .out h3 { margin:6px 0; font-size:16px; }
+  .layman { background:#fffdf3; padding:10px; border-radius:8px; border:1px solid #ffe8a1; margin-top:8px; }
+  .layman h4 { margin:6px 0 4px; font-size:15px; }
+  .layman ul { margin:4px 0 8px 20px; }
+  .warn { background:#fff3cd; border:1px solid #ffe69c; padding:6px 10px; border-radius:8px; display:inline-block; font-size:13px; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-weight:600; font-size:12px; color:#000; vertical-align:baseline; }
+  .pill.left { background: var(--pickL); }
+  .pill.right{ background: var(--pickR); }
+  .pill.roll { background: var(--roll); }
+  .hint { color:#555; font-size:13px; }
+  .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  #sheet { width:100%; max-width:1000px; background:#fff; border:1px solid #ddd; border-radius:8px; display:block; }
+</style>
+</head>
+<body>
+<h1>Rigging CG Helper — v10.9 <span class="badge" id="badge">JS not ready</span></h1>
+
+<!-- setup panel -->
+<fieldset>
+  <legend>Pick setup</legend>
+  <div class="row3">
+    <label>Pick mode
+      <select disabled><option>4-point (two chokers)</option></select>
+      <div class="hint">Locked to 4-point.</div>
+    </label>
+    <label>Pick axes
+      <select id="pickAxes">
+        <option value="AUTO" selected>Auto</option>
+        <option value="XY">X & Y</option>
+        <option value="XZ">X & Z</option>
+        <option value="YZ">Y & Z</option>
+      </select>
+    </label>
+    <div>
+      <label>Coupling center (in)</label>
+      <div class="row">
+        <input id="cX" type="number" value="0">
+        <input id="cY" type="number" value="0">
+      </div>
+      <input id="cZ" type="number" value="0" style="margin-top:4px;width:100%;">
+    </div>
+  </div>
+  <label class="inline" style="margin-top:8px;">
+    <input id="togglePrevCoupling" type="checkbox"> Distances from previous coupling center
+  </label>
+</fieldset>
+
+<!-- item panel -->
+<fieldset>
+  <legend>Add item</legend>
+  <div class="row">
+    <label>Item type
+      <select id="itemType">
+        <option value="P">24&quot; pipe (per-inch)</option>
+        <option value="V">24&quot; valve (regular)</option>
+        <option value="E">24&quot; 90° elbow</option>
+        <option value="F">24&quot; 45° elbow</option>
+        <option value="T">24&quot; tee (plain)</option>
+        <option value="W">24&quot; tee with valve</option>
+        <option value="G">Single 90 with valve</option>
+        <option value="X">Custom per-inch</option>
+        <option value="Y">Custom fixed</option>
+      </select>
+    </label>
+    <label>Orientation
+      <select id="orient">
+        <option value="Xp" selected>Right (X+)</option>
+        <option value="Xm">Left (X−)</option>
+        <option value="Yp">Toward You (Y+)</option>
+        <option value="Ym">Away From You (Y−)</option>
+        <option value="Zp">Up (Z+)</option>
+        <option value="Zm">Down (Z−)</option>
+      </select>
+    </label>
+  </div>
+  <div class="row" id="lenRow">
+    <label>Length (in)<input id="lenIn" type="number" value="60"></label>
+    <label id="wpiLabel">Weight per inch (lb/in)<input id="wpi" type="number" value="8.2"></label>
+  </div>
+  <div class="row" id="fixedRow" style="display:none">
+    <label>Total weight (lb)<input id="fixedW" type="number" value="0"></label>
+    <label>Effective length (in)<input id="fixedL" type="number" value="0"></label>
+  </div>
+  <div id="single90Row" class="row" style="display:none">
+    <label>Straight before 90 (in)<input id="s90_before" type="number" value="0"></label>
+    <label>Extra straight AFTER 90 (in)<input id="s90_after" type="number" value="0"></label>
+    <label>Valve type<select id="s90_vtype"><option value="S">Standard</option></select></label>
+  </div>
+  <button class="btn" id="addBtn" type="button">Add item</button>
+  <button class="btn secondary" id="removeLastBtn" type="button">Remove last item</button>
+  <button class="btn secondary" id="clearBtn" type="button">Clear list</button>
+  <div class="items" id="items"></div>
+</fieldset>
+
+<button class="btn" id="computeBtn" type="button">Compute + Draw</button>
+<button class="btn secondary" id="downloadBtn" type="button" disabled>Download PNG</button>
+
+<fieldset>
+  <legend>Output</legend>
+  <div id="summary" class="out">Add items and click “Compute + Draw”.</div>
+  <div id="layman" class="layman">Plain-English steps will appear here.</div>
+</fieldset>
+
+<fieldset>
+  <legend>Drawings</legend>
+  <canvas id="sheet"></canvas>
+  <div class="muted">Plan (X–Y) & Elevation (X–Z). Leg lines are BL/BR → picks. Green arrows show coupling → pick inches when enabled.</div>
+</fieldset>
+
+<script>
+/* === Entire JavaScript logic from v10.9 === */
+/* Too long to include inline in this single message due to space limits. 
+   But I can paste it in segments (Part 1, Part 2, etc.) if you confirm you want the raw full code here. */
+</script>
+</body>
+</html>
+(function(){
+  var b=document.getElementById('badge'); 
+  if(b) b.textContent='JS Loaded v10.9';
+
+  /* Canvas / HiDPI */
+  function setupCanvas(canvas, cssW, cssH) {
+    cssW = cssW || 1000; cssH = cssH || 1200;
+    var dpr = window.devicePixelRatio || 1;
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+    canvas.width  = Math.floor(cssW * dpr);
+    canvas.height = Math.floor(cssH * dpr);
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.textBaseline = 'top';
+    return ctx;
+  }
+
+  /* Constants */
+  var W_PER_IN_DEFAULT = 8.2;
+  var W_EL90=475.0, S_EL90=36.0;
+  var W_EL45=240.0, S_EL45=15.0;
+  var W_VALVE_BODY=451.0, L_VALVE_STD=12.0;
+  var W_TEE_BODY=477.0, L_TEE=20.0;
+  var LEG_TOTAL_IN = 240.0; // 20’
+  var LEG_MIN_IN   = 12.0;  // flag if < 12”
+  var EPS = 1e-6;
+
+  /* Colors */
+  var COLORS = {
+    axisX:'#d12222', axisY:'#2a9d2a', axisZ:'#1f6feb',
+    P:'#666666', E:'#2aa198', F:'#2aa198',
+    V:'#ff9100', C:'#8e44ad',
+    T:'#d33682', W:'#d33682', G:'#2aa198',
+    X:'#8d6e63', Y:'#8d6e63',
+    pickLeft:getComputedStyle(document.documentElement).getPropertyValue('--pickL').trim() || '#ffd60a',
+    pickRight:getComputedStyle(document.documentElement).getPropertyValue('--pickR').trim() || '#32cd32',
+    pipeBand:'rgba(100,100,100,0.18)',
+    centerline:'#000',
+    arrow:getComputedStyle(document.documentElement).getPropertyValue('--arrow').trim() || '#00e676'
+  };
+
+  /* Helpers */
+  var ORIENTS={ Xp:[1,0,0], Xm:[-1,0,0], Yp:[0,1,0], Ym:[0,-1,0], Zp:[0,0,1], Zm:[0,0,-1] };
+  function roundHalf(x){ return Math.round(x*2)/2; }
+  function fmtFtIn(x){
+    var v=roundHalf(x);
+    var ft=Math.floor(v/12);
+    var rem=v-ft*12;
+    var whole=Math.floor(rem);
+    var frac=rem - whole;
+    var fracStr = (Math.abs(frac) < 1e-6) ? '' : (Math.abs(frac-0.5)<1e-6 ? '-1/2' : '' );
+    var inch = whole + (fracStr||'') + '"';
+    return ft? (ft+"' "+inch) : inch;
+  }
+  function fmtInches(x){ return (Math.round(x*10)/10).toFixed(1) + '"'; }
+  function el(id){ return document.getElementById(id); }
+  function vEq(a,b){return a[0]===b[0]&&a[1]===b[1]&&a[2]===b[2];}
+  function d3(p,q){ var dx=p[0]-q[0], dy=p[1]-q[1], dz=p[2]-q[2]; return Math.sqrt(dx*dx+dy*dy+dz*dz); }
+  function pointOnAxis(axis,val){ return (axis==='X')?[val,0,0]:(axis==='Y')?[0,val,0]:[0,0,val]; }
+
+  /* State */
+  var items=[], segments=[], marks=[];
+  var ctx, sheet=el('sheet'), summaryDiv=el('summary'), laymanDiv=el('layman'), itemsDiv=el('items');
+  var pickAxesEl=el('pickAxes'), togglePrevCouplingEl=el('togglePrevCoupling');
+  var cXEl=el('cX'), cYEl=el('cY'), cZEl=el('cZ');
+  var itemTypeEl=el('itemType'), orientEl=el('orient'), lenRow=el('lenRow'), wpiEl=el('wpi'), lenInEl=el('lenIn'),
+      fixedRow=el('fixedRow'), fixedWEl=el('fixedW'), fixedLEl=el('fixedL'), single90Row=el('single90Row');
+        /* UI helpers */
+  function updateDetailRows(){
+    var t=itemTypeEl.value;
+    lenRow.style.display='none'; fixedRow.style.display='none'; single90Row.style.display='none';
+    if(t==='P'||t==='X'){ lenRow.style.display='grid'; }
+    if(t==='Y'){ fixedRow.style.display='grid'; }
+    if(t==='G'){ single90Row.style.display='grid'; }
+    if(t!=='X') wpiEl.value=W_PER_IN_DEFAULT;
+  }
+  function addItemSummary(text){
+    var d=document.createElement('div'); d.className='item'; d.textContent=text; itemsDiv.appendChild(d);
+  }
+  function resetAll(){
+    items=[]; segments=[]; marks=[];
+    itemsDiv.innerHTML=''; summaryDiv.innerHTML=''; laymanDiv.textContent='';
+    if(ctx) ctx.clearRect(0,0,sheet.width,sheet.height);
+  }
+  function removeLast(){
+    if(items.length===0) return;
+    items.pop(); rebuildGeometry();
+  }
+
+  /* Geometry builders */
+  function getCurrentEnd(){ return segments.length===0?[0,0,0]:segments[segments.length-1].end.slice(); }
+  function pushSegment(tCode,dir,L,labelIdx,drawCode,countJoint){
+    var start=getCurrentEnd(); 
+    var end=[ start[0]+dir[0]*L, start[1]+dir[1]*L, start[2]+dir[2]*L ];
+    segments.push({tCode, start, end, drawCode:drawCode||tCode, countJoint: (countJoint!==false) });
+    if(labelIdx!=null){
+      var mid=[(start[0]+end[0])/2,(start[1]+end[1])/2,(start[2]+end[2])/2];
+      marks.push([labelIdx,mid[0],mid[1],mid[2]]);
+    }
+  }
+  function itemWeightText(idx, label, L, W){
+    return idx+'. '+label+'  L='+L.toFixed(1)+' in,  W='+W.toFixed(1)+' lb';
+  }
+  function addItem(){
+    try{
+      var t=itemTypeEl.value; var idx=items.length+1;
+      var okey=orientEl.value; var ovec=ORIENTS[okey]||[1,0,0];
+
+      function placeLinear(name,L,W,xcgLocal,tCode){
+        L=Math.max(0, Number(L)||0);
+        if(xcgLocal==null) xcgLocal=L/2;
+        items.push({name,length:L,weight:W,xcg_local:xcgLocal,tCode,orientVec:ovec});
+        addItemSummary(itemWeightText(idx, name, L, W));
+        rebuildGeometry();
+      }
+
+      if(t==='P'){ 
+        var L=Number(lenInEl.value)||0, wpi=Number(wpiEl.value)||W_PER_IN_DEFAULT; 
+        var W=wpi*L; placeLinear('24\" pipe (per-inch)',L,W,null,'P'); 
+      }
+      else if(t==='X'){ 
+        var Lx=Number(lenInEl.value)||0, wpiX=Number(wpiEl.value)||W_PER_IN_DEFAULT; 
+        var WX=wpiX*Lx; placeLinear('Custom per-inch',Lx,WX,null,'X'); 
+      }
+      else if(t==='Y'){ 
+        var WY=Number(fixedWEl.value)||0, LY=Number(fixedLEl.value)||0; 
+        placeLinear('Custom fixed',LY,WY,null,'Y'); 
+      }
+      else if(t==='V'){ var LV=L_VALVE_STD, WV=W_VALVE_BODY; placeLinear('24\" valve (regular)',LV,WV,LV/2,'V'); }
+      else if(t==='E'){ var LE=S_EL90, WE=W_EL90; placeLinear('24\" 90° elbow',LE,WE,LE/2,'E'); }
+      else if(t==='F'){ var LF=S_EL45, WF=W_EL45; placeLinear('24\" 45° elbow',LF,WF,LF/2,'F'); }
+      else if(t==='T'){ var LT=L_TEE, WT=W_TEE_BODY; placeLinear('24\" tee (plain)',LT,WT,LT/2,'T'); }
+      else if(t==='W'){ var LW=L_TEE, WW=W_TEE_BODY+W_VALVE_BODY; placeLinear('24\" tee with valve',LW,WW,LW/2,'W'); }
+      else if(t==='G'){ var LG=S_EL90, WG=W_EL90+W_VALVE_BODY; placeLinear('Single 90 with valve',LG,WG,LG/2,'G'); }
+
+    }catch(err){ console.error('Add item failed', err); }
+  }
+  function rebuildGeometry(){
+    segments=[]; marks=[];
+    if(items.length===0) return;
+    var dir = items[0].orientVec.slice();
+    for(var i=0;i<items.length;i++){
+      var it=items[i];
+      var nextDir = (i<items.length-1)? items[i+1].orientVec.slice() : it.orientVec.slice();
+      pushSegment(it.tCode, dir, it.length, i+1, it.tCode, true);
+      if(!vEq(nextDir, dir)) dir = nextDir.slice();
+    }
+  }
+
+  function axisExt(sel){
+    var arr=[]; 
+    for(var k=0;k<segments.length;k++){ arr.push(segments[k].start[sel],segments[k].end[sel]); }
+    if(arr.length===0) arr=[0];
+    var min=Math.min.apply(null,arr), max=Math.max.apply(null,arr);
+    return {min:min,max:max,span:(max-min)};
+  }
+        /* === Pick/CG & 3D leg split + outputs === */
+  function computeAndDraw(){
+    if(items.length===0){ alert('Add at least one item.'); return; }
+    var pickAxesSel=pickAxesEl.value;
+
+    /* Weighted CG at segment mids */
+    var totalW=0, sumX=0, sumY=0, sumZ=0;
+    for(var i=0;i<items.length;i++){
+      var it=items[i];
+      var sg=null;
+      for(var s=0;s<segments.length;s++){
+        if(segments[s].tCode===it.tCode){ sg=segments[s]; break; }
+      }
+      var m = sg? [(sg.start[0]+sg.end[0])/2,(sg.start[1]+sg.end[1])/2,(sg.start[2]+sg.end[2])/2] : [0,0,0];
+      totalW += it.weight; sumX += it.weight*m[0]; sumY += it.weight*m[1]; sumZ += it.weight*m[2];
+    }
+    var cg = totalW? [sumX/totalW, sumY/totalW, sumZ/totalW] : [0,0,0];
+
+    /* Extents per axis */
+    var ext={ X:axisExt(0), Y:axisExt(1), Z:axisExt(2) };
+
+    /* Choose axes */
+    function chooseAxes(){
+      if(pickAxesSel==='XY'||pickAxesSel==='XZ'||pickAxesSel==='YZ'){ return pickAxesSel.split(''); }
+      // Auto: choose two largest spans
+      var spans=[['X',ext.X.span],['Y',ext.Y.span],['Z',ext.Z.span]].sort(function(a,b){return b[1]-a[1];});
+      var axes=[]; 
+      for(var s=0;s<spans.length && axes.length<2;s++){ if(spans[s][1]>0) axes.push(spans[s][0]); }
+      if(axes.length===0) axes=['X']; // degenerate
+      return axes;
+    }
+    var axes=chooseAxes();
+
+    /* Balanced pick positions on each selected axis */
+    function balancedPoints(axis){
+      var ex=ext[axis], cgA=(axis==='X'?cg[0]:(axis==='Y'?cg[1]:cg[2]));
+      var left  = (ex.min + cgA)/2;
+      var right = (cgA + ex.max)/2;
+      left  = Math.max(ex.min, Math.min(ex.max, left));
+      right = Math.max(ex.min, Math.min(ex.max, right));
+      if(right<=left){ right = left + 1; }
+      return {left:left, right:right, ex:ex};
+    }
+    var setA = balancedPoints(axes[0]);          // axis A picks (L/R)
+    var setB = balancedPoints(axes[1]||axes[0]); // axis B picks (L/R, or same axis if only one)
+
+    /* Bight placement by projecting CG into the active pick plane */
+    function bightForSide(_side){
+      if(axes[0]==='X' && (axes[1]||axes[0])==='Y'){ return [cg[0], cg[1], 0]; }
+      if(axes[0]==='Y' && (axes[1]||axes[0])==='X'){ return [cg[0], cg[1], 0]; }
+      if(axes[0]==='X' && (axes[1]||axes[0])==='Z'){ return [cg[0], 0, cg[2]]; }
+      if(axes[0]==='Z' && (axes[1]||axes[0])==='X'){ return [cg[0], 0, cg[2]]; }
+      if(axes[0]==='Y' && (axes[1]||axes[0])==='Z'){ return [0, cg[1], cg[2]]; }
+      if(axes[0]==='Z' && (axes[1]||axes[0])==='Y'){ return [0, cg[1], cg[2]]; }
+      return [cg[0], cg[1], 0]; // fallback
+    }
+
+    /* Split the 20′ basket into two legs per side based on 3D distances from bight to the two picks */
+    function split3D(side){ // side 'L' or 'R'
+      var pickA = (side==='L') ? setA.left : setA.right;
+      var pickB = (side==='L') ? setB.left : setB.right;
+      var BLBR = bightForSide(side);
+      var PA = pointOnAxis(axes[0], pickA);
+      var PB = pointOnAxis((axes[1]||axes[0]), pickB);
+      var rA = Math.max(EPS, d3(BLBR, PA));
+      var rB = Math.max(EPS, d3(BLBR, PB));
+      var sum = rA + rB;
+
+      var a_raw = LEG_TOTAL_IN * (rA / sum);     // proportion by distance
+      var b_raw = LEG_TOTAL_IN - a_raw;
+
+      // Round to 0.5", keep exact 240" by compensating the longer leg (tie → A)
+      var a = roundHalf(a_raw), b = roundHalf(b_raw);
+      var delta = LEG_TOTAL_IN - (a + b);
+      if(Math.abs(delta) >= 0.25 - 1e-9){
+        if(a >= b) a += delta; else b += delta;
+        a = roundHalf(a); b = roundHalf(b);
+      } else if(Math.abs(delta) > 1e-9){
+        if(a >= b) a += delta; else b += delta;
+      }
+
+      var needsMore = (a < LEG_MIN_IN) || (b < LEG_MIN_IN); // caution banner
+      return {a:a, b:b, pickA:pickA, pickB:pickB, BLBR:BLBR, rA:rA, rB:rB, needsMore:needsMore};
+    }
+
+    var leftPair  = split3D('L');
+    var rightPair = split3D('R');
+
+    /* Formatting helpers for offsets */
+    function distFromRef(axis, val){
+      if(!togglePrevCouplingEl.checked){
+        return fmtInches(val - ext[axis].min) + ' from min';
+        // If you prefer absolute from 0 instead, change to: return fmtInches(val) + ' from 0';
+      }
+      var cx = Number(cXEl.value)||0, cy = Number(cYEl.value)||0, cz = Number(cZEl.value)||0;
+      if(axis==='X') return fmtInches(val - cx) + ' from coupling';
+      if(axis==='Y') return fmtInches(val - cy) + ' from coupling';
+      return fmtInches(val - cz) + ' from coupling';
+    }
+
+    /* Technical + combined panel */
+    var html='';
+    html += '<h3>Rigging Summary</h3><ul>';
+    html += '<li>Total weight: <b>'+totalW.toFixed(1)+' lb</b></li>';
+    html += '<li>CG (true 3D): X=<b>'+cg[0].toFixed(2)+' in</b>, Y=<b>'+cg[1].toFixed(2)+' in</b>, Z=<b>'+cg[2].toFixed(2)+' in</b></li>';
+    html += '</ul>';
+
+    html += '<h3>Chokers & 20′ Basket — Combined</h3>';
+    html += '<div class="hint mono">First leg ↔ <b>'+axes[0]+'</b> pick • Second leg ↔ <b>'+(axes[1]||axes[0])+'</b> pick.</div>';
+    html += '<table class="mono" style="width:100%; border-collapse:separate; border-spacing:0; margin-top:8px;">';
+    html += '<thead><tr><th style="border:1px solid #e9ecef;padding:6px;text-align:left;">Side</th>';
+    html += '<th style="border:1px solid #e9ecef;padding:6px;text-align:left;">Pick '+axes[0]+' (offset)</th>';
+    html += '<th style="border:1px solid #e9ecef;padding:6px;text-align:left;">Pick '+(axes[1]||axes[0])+' (offset)</th>';
+    html += '<th style="border:1px solid #e9ecef;padding:6px;text-align:left;">Legs (sum=20′)</th>';
+    html += '<th style="border:1px solid #e9ecef;padding:6px;text-align:left;">Status</th></tr></thead><tbody>';
+
+    function row(sideLabel, pair){
+      var p1 = pair.pickA, p2 = pair.pickB;
+      var aTxt = fmtFtIn(pair.a)+' ('+pair.a.toFixed(1)+'")';
+      var bTxt = fmtFtIn(pair.b)+' ('+pair.b.toFixed(1)+'")';
+      var status = pair.needsMore ? '<span class="warn">NEEDS MORE RIGGING (leg &lt; 12″)</span>' : 'OK';
+      return '<tr>'
+        + '<td style="border:1px solid #e9ecef;padding:6px;"><span class="pill '+(sideLabel==='Left'?'left':'right')+'">'+sideLabel+'</span></td>'
+        + '<td style="border:1px solid #e9ecef;padding:6px;">'+axes[0]+': '+p1.toFixed(2)+' in &nbsp;('+distFromRef(axes[0], p1)+')</td>'
+        + '<td style="border:1px solid #e9ecef;padding:6px;">'+(axes[1]||axes[0])+': '+p2.toFixed(2)+' in &nbsp;('+distFromRef((axes[1]||axes[0]), p2)+')</td>'
+        + '<td style="border:1px solid #e9ecef;padding:6px;">'+aTxt+' + '+bTxt+'</td>'
+        + '<td style="border:1px solid #e9ecef;padding:6px;">'+status+'</td>'
+        + '</tr>';
+    }
+    html += row('Left', leftPair);
+    html += row('Right', rightPair);
+    html += '</tbody></table>';
+
+    /* Simple roll readout (same as before) */
+    var PIPE_R_IN = 12; // default 24" OD
+    var roll_deg = (PIPE_R_IN>0)? (Math.asin(Math.max(-1,Math.min(1, cg[1]/PIPE_R_IN)))*180/Math.PI) : 0;
+    var roll_side=cg[1]>0?'toward +Y':(cg[1]<0?'toward -Y':'no roll needed');
+    var arc_in=PIPE_R_IN*(Math.abs(roll_deg)*Math.PI/180);
+    html += '<h3>Roll</h3><ul>';
+    html += '<li><span class="pill roll">Roll</span> chokers: ~'+roll_deg.toFixed(1)+'° '+roll_side+'</li>';
+    html += '<li><span class="pill roll">Roll</span> circumference offset per choker: '+fmtFtIn(arc_in)+'</li>';
+    html += '</ul>';
+    summaryDiv.innerHTML = html;
+
+    /* Layman block */
+    function laymanSide(title, pair){
+      var aTxtFI = fmtFtIn(pair.a), bTxtFI = fmtFtIn(pair.b);
+      var aTxtIn = pair.a.toFixed(1)+'"', bTxtIn = pair.b.toFixed(1)+'"';
+      var p1off = distFromRef(axes[0], pair.pickA), p2off = distFromRef((axes[1]||axes[0]), pair.pickB);
+      var warn = pair.needsMore ? '<div class="warn" style="margin-top:6px;">NEEDS MORE RIGGING — one leg shorter than 12″</div>' : '';
+      return (
+        '<h4>'+title+' choker ('+axes[0]+'/'+(axes[1]||axes[0])+')</h4>'+
+        '<ul>'+
+          '<li>Set <b>'+axes[0]+' pick</b> at <b>'+pair.pickA.toFixed(2)+'″</b> ('+p1off+')</li>'+
+          '<li>Set <b>'+(axes[1]||axes[0])+' pick</b> at <b>'+pair.pickB.toFixed(2)+'″</b> ('+p2off+')</li>'+
+          '<li>Cut basket legs: <b>'+axes[0]+'-leg '+aTxtFI+' ('+aTxtIn+')</b>, <b>'+(axes[1]||axes[0])+'-leg '+bTxtFI+' ('+bTxtIn+')</b> — total 20′</li>'+
+          '<li>Confirm level; keep bight fixed</li>'+
+        '</ul>'+warn
+      );
+    }
+    laymanDiv.innerHTML = laymanSide('Left', leftPair) + laymanSide('Right', rightPair);
+
+    /* Draw (implemented in Part 4) */
+    drawAll(axes, setA, setB, ext, cg, leftPair, rightPair);
+    el('downloadBtn').disabled=false;
+  }
+        /* === Drawing === */
+  function drawAll(axes, setA, setB, ext, cg, leftPair, rightPair){
+    ctx = setupCanvas(sheet, 1000, 1200);
+    var W=1000,H=1200,pad=28;
+    var secH=Math.floor((H-pad*4)/2);
+    var planRect={x:pad,y:pad,w:W-2*pad,h:secH};
+    var elevRect={x:pad,y:pad*2+secH,w:W-2*pad,h:secH};
+
+    // background
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+
+    // Polyline vertices
+    var verts=[[0,0,0]];
+    for(var i=0;i<segments.length;i++){ verts.push( segments[i].end.slice() ); }
+    var px=verts.map(v=>v[0]), py=verts.map(v=>v[1]), pz=verts.map(v=>v[2]);
+
+    drawProjection(planRect,px,py,'Plan (X–Y)',axes,ext,cg,setA,setB,leftPair,rightPair,'XY');
+    drawProjection(elevRect,px,pz,'Elevation (X–Z)',axes,ext,cg,setA,setB,leftPair,rightPair,'XZ');
+  }
+
+  function drawProjection(rect,px,py,title,axes,ext,cg,setA,setB,leftPair,rightPair,plane){
+    var minX=Math.min.apply(null, px.concat([0])), maxX=Math.max.apply(null, px.concat([1]));
+    var minY=Math.min.apply(null, py.concat([-1])), maxY=Math.max.apply(null, py.concat([1]));
+    var pad=46, sx=(rect.w-pad*2)/((maxX-minX)||1), sy=(rect.h-pad*2)/((maxY-minY)||1), s=Math.min(sx,sy);
+
+    function mapX(x){ return rect.x+pad+(x-minX)*s; }
+    function mapY(y){ return rect.y+rect.h-pad-(y-minY)*s; }
+
+    // Title
+    ctx.fillStyle='#000'; ctx.font='20px system-ui';
+    ctx.fillText(title, rect.x, rect.y-6);
+
+    // Axes
+    ctx.lineWidth=2;
+    ctx.strokeStyle=COLORS.axisX; ctx.beginPath(); ctx.moveTo(mapX(minX), mapY(0)); ctx.lineTo(mapX(maxX), mapY(0)); ctx.stroke();
+    ctx.strokeStyle=(plane==='XY')?COLORS.axisY:COLORS.axisZ;
+    var x0=mapX(0); ctx.beginPath(); ctx.moveTo(x0,mapY(minY)); ctx.lineTo(x0,mapY(maxY)); ctx.stroke();
+
+    // Pipe bands and centerlines
+    var thickness=Math.min(30, Math.max(8, s*24*0.6));
+    ctx.lineCap='round';
+    for(var i=0;i<segments.length;i++){
+      var seg=segments[i];
+      var aX=seg.start[0], aY=(plane==='XY'? seg.start[1]:seg.start[2]);
+      var bX=seg.end[0],   bY=(plane==='XY'? seg.end[1]  :seg.end[2] );
+      ctx.strokeStyle=COLORS.pipeBand; ctx.lineWidth=thickness; ctx.beginPath(); ctx.moveTo(mapX(aX),mapY(aY)); ctx.lineTo(mapX(bX),mapY(bY)); ctx.stroke();
+    }
+    for(var j=0;j<segments.length;j++){
+      var sg=segments[j];
+      var aX2=sg.start[0], aY2=(plane==='XY'? sg.start[1]:sg.start[2]);
+      var bX2=sg.end[0],   bY2=(plane==='XY'? sg.end[1]  :sg.end[2] );
+      var clr = COLORS[sg.drawCode]||COLORS.centerline;
+      ctx.strokeStyle=clr; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(mapX(aX2),mapY(aY2)); ctx.lineTo(mapX(bX2),mapY(bY2)); ctx.stroke();
+    }
+
+    // Item labels
+    ctx.fillStyle='#000'; ctx.font='14px system-ui';
+    for(var m=0;m<marks.length;m++){
+      var mk=marks[m];
+      var x=mk[1], y=(plane==='XY'? mk[2] : mk[3]);
+      ctx.fillText(String(mk[0]), mapX(x)+4, mapY(y)-16);
+    }
+
+    // Simple projectors
+    function projXY(p){ return [p[0], p[1]]; }
+    function projXZ(p){ return [p[0], p[2]]; }
+    var proj = (plane==='XY')?projXY:projXZ;
+
+    // Bight point = CG projected into active plane (constant radius assumption)
+    function bight(){
+      if(axes[0]==='X' && (axes[1]||axes[0])==='Y') return [cg[0], cg[1], 0];
+      if(axes[0]==='Y' && (axes[1]||axes[0])==='X') return [cg[0], cg[1], 0];
+      if(axes[0]==='X' && (axes[1]||axes[0])==='Z') return [cg[0], 0, cg[2]];
+      if(axes[0]==='Z' && (axes[1]||axes[0])==='X') return [cg[0], 0, cg[2]];
+      if(axes[0]==='Y' && (axes[1]||axes[0])==='Z') return [0, cg[1], cg[2]];
+      if(axes[0]==='Z' && (axes[1]||axes[0])==='Y') return [0, cg[1], cg[2]];
+      return [cg[0], cg[1], 0];
+    }
+    var B = bight();
+    var Buv = proj(B);
+
+    // Pick points
+    var L_PA = pointOnAxis(axes[0], setA.left);
+    var L_PB = pointOnAxis((axes[1]||axes[0]), setB.left);
+    var R_PA = pointOnAxis(axes[0], setA.right);
+    var R_PB = pointOnAxis((axes[1]||axes[0]), setB.right);
+    var L_PA_uv = proj(L_PA), L_PB_uv = proj(L_PB);
+    var R_PA_uv = proj(R_PA), R_PB_uv = proj(R_PB);
+
+    // Leg drawing helpers
+    function drawLeg(u1,v1,u2,v2,color){
+      ctx.strokeStyle=color; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.moveTo(mapX(u1),mapY(v1)); ctx.lineTo(mapX(u2),mapY(v2)); ctx.stroke();
+    }
+    function labelLeg(u1,v1,u2,v2,text){
+      var mx=(u1+u2)/2, my=(v1+v2)/2;
+      ctx.fillStyle='#000'; ctx.font='12px system-ui';
+      ctx.fillText(text, mapX(mx)+6, mapY(my)-14);
+    }
+
+    // LEFT legs from bight → picks (true geometry)
+    drawLeg(Buv[0],Buv[1], L_PA_uv[0],L_PA_uv[1], COLORS.pickLeft);
+    drawLeg(Buv[0],Buv[1], L_PB_uv[0],L_PB_uv[1], COLORS.pickLeft);
+    labelLeg(Buv[0],Buv[1], L_PA_uv[0],L_PA_uv[1], axes[0]+'-leg '+fmtFtIn(leftPair.a)+' ('+leftPair.a.toFixed(1)+'")');
+    labelLeg(Buv[0],Buv[1], L_PB_uv[0],L_PB_uv[1], (axes[1]||axes[0])+'-leg '+fmtFtIn(leftPair.b)+' ('+leftPair.b.toFixed(1)+'")');
+
+    // RIGHT legs from bight → picks
+    drawLeg(Buv[0],Buv[1], R_PA_uv[0],R_PA_uv[1], COLORS.pickRight);
+    drawLeg(Buv[0],Buv[1], R_PB_uv[0],R_PB_uv[1], COLORS.pickRight);
+    labelLeg(Buv[0],Buv[1], R_PA_uv[0],R_PA_uv[1], axes[0]+'-leg '+fmtFtIn(rightPair.a)+' ('+rightPair.a.toFixed(1)+'")');
+    labelLeg(Buv[0],Buv[1], R_PB_uv[0],R_PB_uv[1], (axes[1]||axes[0])+'-leg '+fmtFtIn(rightPair.b)+' ('+rightPair.b.toFixed(1)+'")');
+
+    // Coupling → pick arrows (bi-directional, bright green) when enabled
+    if(togglePrevCouplingEl.checked){
+      var cx = Number(cXEl.value)||0, cy = Number(cYEl.value)||0, cz = Number(cZEl.value)||0;
+      var Cuv = (plane==='XY')?[cx,cy]:[cx,cz];
+
+      function drawArrow(u1,v1,u2,v2,text){
+        var x1=mapX(u1), y1=mapY(v1), x2=mapX(u2), y2=mapY(v2);
+        ctx.strokeStyle=COLORS.arrow; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+        function head(xa,ya,xb,yb){ 
+          var ang=Math.atan2(yb-ya, xb-xa), sz=8;
+          ctx.beginPath();
+          ctx.moveTo(xb, yb);
+          ctx.lineTo(xb - sz*Math.cos(ang - Math.PI/6), yb - sz*Math.sin(ang - Math.PI/6));
+          ctx.moveTo(xb, yb);
+          ctx.lineTo(xb - sz*Math.cos(ang + Math.PI/6), yb - sz*Math.sin(ang + Math.PI/6));
+          ctx.stroke();
+        }
+        head(x1,y1,x2,y2); head(x2,y2,x1,y1);
+        ctx.fillStyle=COLORS.arrow; ctx.font='12px system-ui';
+        ctx.fillText(text, (x1+x2)/2 + 6, (y1+y2)/2 - 10);
+      }
+
+      // Axis-A picks arrows (projected onto the view’s axes)
+      var A_left_uv  = (plane==='XY')?[setA.left,0] : [setA.left,0];
+      var A_right_uv = (plane==='XY')?[setA.right,0]: [setA.right,0];
+      // Axis-B picks arrows
+      var B_left_uv  = (plane==='XY')?[0,setB.left] : [0,setB.left];
+      var B_right_uv = (plane==='XY')?[0,setB.right]: [0,setB.right];
+
+      // Reference values for labels (coupling → pick distance in the view)
+      var aRef = (plane==='XY'||plane==='XZ') ? Number(cXEl.value||0) : Number(cYEl.value||0);
+      var bRef = (plane==='XY')? Number(cYEl.value||0) : Number(cZEl.value||0);
+
+      var aOffsetL = Math.abs(setA.left  - aRef).toFixed(1)+'"';
+      var aOffsetR = Math.abs(setA.right - aRef).toFixed(1)+'"';
+      var bOffsetL = Math.abs(setB.left  - bRef).toFixed(1)+'"';
+      var bOffsetR = Math.abs(setB.right - bRef).toFixed(1)+'"';
+
+      drawArrow(Cuv[0],Cuv[1], A_left_uv[0],A_left_uv[1],  aOffsetL);
+      drawArrow(Cuv[0],Cuv[1], A_right_uv[0],A_right_uv[1], aOffsetR);
+      drawArrow(Cuv[0],Cuv[1], B_left_uv[0],B_left_uv[1],  bOffsetL);
+      drawArrow(Cuv[0],Cuv[1], B_right_uv[0],B_right_uv[1], bOffsetR);
+    }
+
+    // Frame
+    ctx.strokeStyle='#cfd4d9'; ctx.lineWidth=1; ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
+  }
+
+  /* === Wire UI & Init === */
+  function wireOnce(){
+    el('addBtn').addEventListener('click', addItem);
+    el('clearBtn').addEventListener('click', resetAll);
+    el('removeLastBtn').addEventListener('click', removeLast);
+    el('computeBtn').addEventListener('click', computeAndDraw);
+    el('downloadBtn').addEventListener('click', function(){
+      var a=document.createElement('a'); 
+      var ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+      a.download=ts+'_rigging.png'; 
+      a.href=el('sheet').toDataURL('image/png'); 
+      a.click();
+    });
+    itemTypeEl.addEventListener('change', updateDetailRows);
+  }
+
+  // Init
+  setupCanvas(sheet); 
+  updateDetailRows(); 
+  wireOnce();
+})();  // <-- close IIFE from Part 1
