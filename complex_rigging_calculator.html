@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Complex COG Rigging Calculator — v10.8 (3D split, two bights, guards)</title>
+<title>Complex COG Rigging Calculator — v11.01 (3D split, two bights, guards)</title>
 <style>
   :root{
     --bg:#ffffff; --ink:#111; --panel:#f8f9fa; --border:#e9ecef; --accent:#0d6efd;
@@ -53,16 +53,17 @@
 </style>
 </head>
 <body>
-<h1>Rigging CG Helper — v10.8 <span class="badge" id="badge">JS Loaded</span></h1>
+<h1>Rigging CG Helper — v11.01 <span class="badge" id="badge">JS Loaded</span></h1>
 
 <fieldset>
   <legend>Pick setup</legend>
   <div class="row3">
     <label>Pick mode
-      <select id="pickMode" disabled>
-        <option value="4" selected>4-point (two chokers)</option>
-      </select>
-      <div class="hint">Locked to 4-point.</div>
+      <select id="pickMode">
+  <option value="4" selected>4-point (two chokers)</option>
+  <option value="2">2-point (XY only)</option>
+</select>
+<div class="hint">2-point = XY only. If Z shows up in the math, you’ll be warned to switch back to 4-point.</div>
     </label>
     <label>Pick axes
       <select id="pickAxes">
@@ -97,16 +98,16 @@
   <div class="row">
     <label>Item type
       <select id="itemType">
-        <option value="P">24&quot; pipe (per-inch)</option>
-        <option value="V">24&quot; valve (regular)</option>
-        <option value="E">24&quot; 90° elbow</option>
-        <option value="F">24&quot; 45° elbow</option>
-        <option value="T">24&quot; tee (plain)</option>
-        <option value="W">24&quot; tee with valve</option>
-        <option value="G">Single 90 with valve</option>
-        <option value="X">Custom per-inch</option>
-        <option value="Y">Custom fixed</option>
-      </select>
+  <option value="P">24&quot; pipe (per-inch)</option>
+  <option value="V">24&quot; valve (regular)</option>
+  <option value="E">24&quot; 90° elbow (LR arc)</option>
+  <option value="F">24&quot; 45° elbow (LR arc)</option>
+  <option value="T">24&quot; tee (plain)</option>
+  <option value="W">24&quot; tee with valve</option>
+  <option value="G">Single 90 with valve</option>
+  <option value="X">Custom per-inch</option>
+  <option value="Y">Custom fixed</option>
+</select>
     </label>
     <label>Orientation (layman)
       <select id="orient">
@@ -177,11 +178,13 @@
 </fieldset>
 
 <script>
-(function(){ var b=document.getElementById('badge'); if(b) b.textContent='JS Loaded v10.8'; })();
-
-if(!window.__rig_v108_wired){
-  window.__rig_v108_wired = true;
-
+(function(){
+  var b=document.getElementById('badge');
+  if(b) b.textContent='JS Loaded v11.01';
+})();
+if(!window.__rig_v1101_wired){
+  window.__rig_v1101_wired = true;
+  
   /* Canvas / HiDPI */
   function setupCanvas(canvas, cssW, cssH) {
     cssW = cssW || 1000; cssH = cssH || 1200;
@@ -198,8 +201,16 @@ if(!window.__rig_v108_wired){
 
   /* Constants */
   var W_PER_IN_DEFAULT = 8.2;
-  var W_EL90=475.0, S_EL90=36.0;
-  var W_EL45=240.0, S_EL45=15.0;
+  // 24" fittings (centerline dimensions)
+// Long-radius 90° elbow: R = 1.5D = 36", arc length = (π/2)·R ≈ 56.55"
+var W_EL90 = 475.0;
+var R_EL90 = 36.0;
+var S_EL90_ARC = Math.PI * 0.5 * R_EL90;   // 56.55 in used for CG/weight
+
+// 45° elbow: centerline arc length = (π/4)·R, using same LR radius for 24"
+var W_EL45 = 240.0;
+var R_EL45 = 36.0;
+var S_EL45_ARC = Math.PI * 0.25 * R_EL45;  // 28.27 in
   var W_VALVE_BODY=451.0, L_VALVE_STD=12.0;
   var W_TEE_BODY=477.0, L_TEE=20.0;
   var LEG_TOTAL_IN = 240.0;      // 20'
@@ -240,11 +251,10 @@ if(!window.__rig_v108_wired){
 
   /* State */
   var items=[], segments=[], marks=[];
-  var ctx, sheet, summaryDiv, itemsDiv, debugDiv, laymanDiv;
-var pickAxesEl, togglePrevCouplingEl, cXEl, cYEl, cZEl;
-  var itemTypeEl, orientEl, lenRow, wpiEl, wpiLabel, lenInEl, fixedRow, fixedWEl, fixedLEl;
-  var single90Row;
-
+var ctx, sheet, summaryDiv, itemsDiv, debugDiv, laymanDiv;
+var pickModeEl, pickAxesEl, togglePrevCouplingEl, cXEl, cYEl, cZEl;
+var itemTypeEl, orientEl, lenRow, wpiEl, wpiLabel, lenInEl, fixedRow, fixedWEl, fixedLEl;
+var single90Row;
   /* UI helpers */
   function updateDetailRows(){
     var t=itemTypeEl.value;
@@ -296,11 +306,14 @@ var pickAxesEl, togglePrevCouplingEl, cXEl, cYEl, cZEl;
       else if(t==='X'){ var Lx=Number(lenInEl.value)||0, wpiX=Number(wpiEl.value)||W_PER_IN_DEFAULT; var WX=wpiX*Lx; placeLinear('Custom per-inch',Lx,WX,null,'X'); }
       else if(t==='Y'){ var WY=Number(fixedWEl.value)||0, LY=Number(fixedLEl.value)||0; placeLinear('Custom fixed',LY,WY,null,'Y'); }
       else if(t==='V'){ var LV=L_VALVE_STD, WV=W_VALVE_BODY; placeLinear('24\" valve (regular)',LV,WV,LV/2,'V'); }
-      else if(t==='E'){ var LE=S_EL90, WE=W_EL90; placeLinear('24\" 90° elbow',LE,WE,LE/2,'E'); }
-      else if(t==='F'){ var LF=S_EL45, WF=W_EL45; placeLinear('24\" 45° elbow',LF,WF,LF/2,'F'); }
+      else if(t==='E'){ var LE=S_EL90_ARC, WE=W_EL90; placeLinear('24" 90° elbow (LR arc)', LE, WE, LE/2, 'E'); }
+      else if(t==='F'){ var LF=S_EL45_ARC, WF=W_EL45; placeLinear('24" 45° elbow (LR arc)', LF, WF, LF/2, 'F'); }
       else if(t==='T'){ var LT=L_TEE, WT=W_TEE_BODY; placeLinear('24\" tee (plain)',LT,WT,LT/2,'T'); }
       else if(t==='W'){ var LW=L_TEE, WW=W_TEE_BODY+W_VALVE_BODY; placeLinear('24\" tee with valve',LW,WW,LW/2,'W'); }
-      else if(t==='G'){ var LG=S_EL90, WG=W_EL90+W_VALVE_BODY; placeLinear('Single 90 with valve',LG,WG,LG/2,'G'); }
+      else if(t==='G'){
+  var LG=S_EL90_ARC, WG=W_EL90+W_VALVE_BODY;
+  placeLinear('Single 90 with valve', LG, WG, LG/2, 'G');
+}
     }catch(err){ debugDiv.textContent = 'debug: Add item failed: ' + (err && err.message ? err.message : err); }
   }
   function rebuildGeometry(){
@@ -325,7 +338,8 @@ var pickAxesEl, togglePrevCouplingEl, cXEl, cYEl, cZEl;
   /* Compute + Draw */
   function computeAndDraw(){
     if(items.length===0){ alert('Add at least one item.'); return; }
-    var pickAxesSel=pickAxesEl.value;
+var pickAxesSel = pickAxesEl.value;
+var pickMode = (pickModeEl && pickModeEl.value) || '4';
 
     // Weighted CG at segment mids
     var totalW=0, sumX=0, sumY=0, sumZ=0;
@@ -340,13 +354,37 @@ var pickAxesEl, togglePrevCouplingEl, cXEl, cYEl, cZEl;
 
     var ext={ X:axisExt(0), Y:axisExt(1), Z:axisExt(2) };
     function chooseAxes(){
-      if(pickAxesSel==='XY'||pickAxesSel==='XZ'||pickAxesSel==='YZ'){ return pickAxesSel.split(''); }
-      var spans=[['X',ext.X.span],['Y',ext.Y.span],['Z',ext.Z.span]].sort(function(a,b){return b[1]-a[1];});
-      var axes=[]; for(var s=0;s<spans.length && axes.length<2;s++){ if(spans[s][1]>0) axes.push(spans[s][0]); }
-      if(axes.length===0) axes=['X']; return axes;
-    }
+  // If operator explicitly chose a pair, honor it (unless 2-pick forbids Z)
+  if(pickMode === '2'){
+    // 2-pick is XY-only
+    // If the operator tries XZ or YZ we force XY and report a warning later.
+    return ['X','Y'];
+  }
+  if(pickAxesSel==='XY'||pickAxesSel==='XZ'||pickAxesSel==='YZ'){
+    return pickAxesSel.split('');
+  }
+  // AUTO: pick the two largest spans
+  var spans=[['X',ext.X.span],['Y',ext.Y.span],['Z',ext.Z.span]].sort(function(a,b){return b[1]-a[1];});
+  var axes=[]; for(var s=0;s<spans.length && axes.length<2;s++){ if(spans[s][1]>0) axes.push(spans[s][0]); }
+  if(axes.length===0) axes=['X'];
+  return axes;
+}
     var axes=chooseAxes();
 
+    var warnings = [];
+if (pickMode === '2') {
+  // If user explicitly selected a pair containing Z, flag it.
+  if (pickAxesSel === 'XZ' || pickAxesSel === 'YZ') {
+    warnings.push('You selected '+pickAxesSel+' while in 2-point mode. 2-point mode is XY-only; switched to XY.');
+  }
+  // If geometry meaningfully uses Z, also warn.
+  var Z_in_play = ext.Z.span > 0.01;
+  if (Z_in_play) {
+    warnings.push('Z geometry detected. Switch to 4-point mode (XZ / YZ) to control level in Z.');
+  }
+  // Force axes to XY
+  axes = ['X','Y'];
+}
     function balancedPoints(axis){
       var ex=ext[axis], cgA=(axis==='X'?cg[0]:(axis==='Y'?cg[1]:cg[2]));
       var left = (ex.min + cgA)/2;
@@ -454,7 +492,9 @@ var pickAxesEl, togglePrevCouplingEl, cXEl, cYEl, cZEl;
     html += '<li><span class="pill roll">Roll</span> chokers: ~'+roll_deg.toFixed(1)+'° '+roll_side+'</li>';
     html += '<li><span class="pill roll">Roll</span> circumference offset per choker: '+fmtFtIn(arc_in)+'</li>';
     html += '</ul>';
-
+    if (warnings.length){
+  html += '<div class="warn" style="margin-top:6px"><b>Heads up:</b> ' + warnings.join(' ') + '</div>';
+}
     summaryDiv.innerHTML = html;
 /* Layman steps */
 function laymanSide(title, pair){
@@ -678,11 +718,30 @@ function drawProjection(rect,px,py,title,picksets,plane){
         a.download=ts+'_rigging.png'; a.href=el('sheet').toDataURL('image/png'); a.click();
       });
     }
+    if (pickModeEl && pickAxesEl) {
+  function syncPickAxesForMode(){
+    var is2 = (pickModeEl.value === '2');
+    // Disable Z pairs when in 2-pick mode
+    for (var i=0;i<pickAxesEl.options.length;i++){
+      var v = pickAxesEl.options[i].value;
+      var hasZ = (v.indexOf('Z') !== -1);
+      pickAxesEl.options[i].disabled = is2 && hasZ;
+    }
+    // If current selection is disallowed, snap to XY
+    if (is2 && (pickAxesEl.value === 'XZ' || pickAxesEl.value === 'YZ')) {
+      pickAxesEl.value = 'XY';
+    }
+  }
+  pickModeEl.addEventListener('change', syncPickAxesForMode);
+  syncPickAxesForMode();
+}
     itemTypeEl.addEventListener('change', updateDetailRows);
   }
 
   window.addEventListener('load', function(){
-  pickAxesEl=el('pickAxes'); togglePrevCouplingEl=el('togglePrevCoupling');
+pickModeEl=el('pickMode');
+pickAxesEl=el('pickAxes');
+togglePrevCouplingEl=el('togglePrevCoupling');
   itemTypeEl=el('itemType'); orientEl=el('orient'); lenRow=el('lenRow'); wpiEl=el('wpi'); wpiLabel=el('wpiLabel'); lenInEl=el('lenIn');
   fixedRow=el('fixedRow'); fixedWEl=el('fixedW'); fixedLEl=el('fixedL');
   single90Row=el('single90Row');
@@ -692,7 +751,7 @@ function drawProjection(rect,px,py,title,picksets,plane){
   laymanDiv=el('layman');
 
   setupCanvas(sheet); updateDetailRows(); wireOnce();
-  debugDiv.textContent='debug: ready (v10.9 features: coupling center + layman + true legs + arrows)';
+  debugDiv.textContent='debug: ready (v11.01 features: coupling center + layman + true legs + arrows)';
 });
 }
 </script>
