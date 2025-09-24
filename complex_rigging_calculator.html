@@ -243,6 +243,11 @@ var S_EL45_ARC = Math.PI * 0.25 * R_EL45;  // 28.27 in
     var frac=rem - whole;
     var fracStr = (Math.abs(frac) < 1e-6) ? '' : (Math.abs(frac-0.5)<1e-6 ? '-1/2' : '' );
     var inch = whole + (fracStr||'') + '"';
+    var ORIENT_LABELS = {
+  Xp:'Right (X+)', Xm:'Left (X−)',
+  Yp:'Toward You (Y+)', Ym:'Away From You (Y−)',
+  Zp:'Up (Z+)', Zm:'Down (Z−)'
+};
     return ft? (ft+"' "+inch) : inch;
   }
   function fmtInches(x){ return (Math.round(x*10)/10).toFixed(1) + '"'; }
@@ -274,9 +279,18 @@ var single90Row;
     debugDiv.textContent='debug: reset';
   }
   function removeLast(){
-    if(items.length===0) return;
-    items.pop(); rebuildGeometry(); redrawDebug();
+  if(items.length===0) return;
+  items.pop();                           // drop from data
+  if(itemsDiv.lastElementChild){         // drop the visual card
+    itemsDiv.removeChild(itemsDiv.lastElementChild);
   }
+  rebuildGeometry();
+  redrawDebug();
+  summaryDiv.innerHTML='';               // clear stale summary so user recomputes
+  laymanDiv.innerHTML='Plain-English steps will appear here.';
+  ctx && ctx.clearRect(0,0,sheet.width,sheet.height);
+  el('downloadBtn').disabled = true;
+}
 
   /* Geometry */
   function getCurrentEnd(){ return segments.length===0?[0,0,0]:segments[segments.length-1].end.slice(); }
@@ -299,7 +313,7 @@ var single90Row;
         L=Math.max(0, Number(L)||0);
         if(xcgLocal==null) xcgLocal=L/2;
         items.push({name,length:L,weight:W,xcg_local:xcgLocal,tCode,orientVec:ovec});
-        addItemSummary(itemWeightText(idx, name, L, W));
+        addItemSummary(itemWeightText(idx, name, L, W) + '  •  Dir: ' + (ORIENT_LABELS[okey]||okey));
         rebuildGeometry(); redrawDebug();
       }
       if(t==='P'){ var L=Number(lenInEl.value)||0, wpi=Number(wpiEl.value)||W_PER_IN_DEFAULT; var W=wpi*L; placeLinear('24\" pipe (per-inch)',L,W,null,'P'); }
@@ -395,8 +409,30 @@ if (pickMode === '2') {
       return {left:left, right:right, ex:ex};
     }
     var setA = balancedPoints(axes[0]);
-    var setB = balancedPoints(axes[1]||axes[0]);
+var setB = balancedPoints(axes[1]||axes[0]);
+    // Use enforced picks when computing legs:
+var leftPair  = split3D('L', leftAdj.a,  leftAdj.b);
+var rightPair = split3D('R', rightAdj.a, rightAdj.b);
 
+// And also when drawing: supply LEFT/RIGHT picks per axis
+var picksForDraw = [
+  { axis: axes[0], picks: [leftAdj.a,  rightAdj.a],  ex: ext[axes[0]] },
+  { axis: (axes[1]||axes[0]), picks: [leftAdj.b, rightAdj.b], ex: ext[(axes[1]||axes[0])] }
+];
+
+drawSheet(picksForDraw);
+    var MIN_SPREAD = 24, MAX_SPREAD = 72;
+var A = axes[0], B = axes[1] || axes[0];
+
+// Left side pair (setA.left vs setB.left)
+var leftAdj  = enforceSpreadPair(setA.left,  setB.left,  A, B, ext, MIN_SPREAD, MAX_SPREAD);
+// Right side pair (setA.right vs setB.right)
+var rightAdj = enforceSpreadPair(setA.right, setB.right, A, B, ext, MIN_SPREAD, MAX_SPREAD);
+
+// Append any notes to warnings
+if (leftAdj.note)  warnings.push('Left: '  + leftAdj.note);
+if (rightAdj.note) warnings.push('Right: ' + rightAdj.note);
+   
     /* Bight placement (two bights) by projection of CG into pick plane */
     function bightForSide(side){ // 'L' or 'R' (same placement rule; two conceptual bights)
       if(axes[0]==='X' && axes[1]==='Y'){ return [cg[0], cg[1], 0]; }
@@ -413,17 +449,16 @@ if (pickMode === '2') {
     function pointOnAxis(axis,val){ return (axis==='X')?[val,0,0]:(axis==='Y')?[0,val,0]:[0,0,val]; }
     function d3(p,q){ var dx=p[0]-q[0], dy=p[1]-q[1], dz=p[2]-q[2]; return Math.sqrt(dx*dx+dy*dy+dz*dz); }
 
-    function split3D(side){ // side 'L' or 'R'
-      var pickA = (side==='L') ? setA.left : setA.right;
-      var pickB = (side==='L') ? setB.left : setB.right;
-      var BLBR = bightForSide(side);
-      var PA = pointOnAxis(axes[0], pickA);
-      var PB = pointOnAxis(axes[1]||axes[0], pickB);
-      var rA = Math.max(EPS, d3(BLBR, PA));
-      var rB = Math.max(EPS, d3(BLBR, PB));
-      var sum = rA + rB;
-      var a_raw = LEG_TOTAL_IN * (rA / sum);
-      var b_raw = LEG_TOTAL_IN - a_raw;
+    function split3D(side, pickA, pickB){ // side 'L' or 'R', enforced picks
+  var BLBR = bightForSide(side);
+  var PA = pointOnAxis(axes[0], pickA);
+  var PB = pointOnAxis(axes[1]||axes[0], pickB);
+  var rA = Math.max(EPS, d3(BLBR, PA));
+  var rB = Math.max(EPS, d3(BLBR, PB));
+  var sum = rA + rB;
+  var a_raw = LEG_TOTAL_IN * (rA / sum);
+  var b_raw = LEG_TOTAL_IN - a_raw;
+  // ... (rest unchanged);
 
       // Round to 0.5", then enforce exact 240" by nudging the longer leg (ties -> axis-A)
       var a = roundHalf(a_raw), b = roundHalf(b_raw);
@@ -436,12 +471,83 @@ if (pickMode === '2') {
       }
 
       var needsMore = (a < LEG_MIN_IN) || (b < LEG_MIN_IN);
+     return {
+  a:a, b:b, sum:roundHalf(a+b),
+  pickA: pickA, pickB: pickB,
+  rA:rA, rB:rB, needsMore: needsMore
+}; 
       return {a:a, b:b, sum:roundHalf(a+b), pickA:pickA, pickB:pickB, rA:rA, rB:rB, needsMore:needsMore};
     }
 
-    var leftPair  = split3D('L');
-    var rightPair = split3D('R');
+    var leftPair  = split3D('L', leftAdj.a,  leftAdj.b);
+    var rightPair = split3D('R', rightAdj.a, rightAdj.b);
 
+    function clamp(x,min,max){ return Math.max(min, Math.min(max, x)); }
+function signLike(x, ref){ return (ref>=0? 1 : -1) * Math.abs(x); }
+
+/**
+ * Enforce 24"–72" distance between the two picks on one side.
+ * Keeps the A:B ratio by scaling both picks from the origin (0,0),
+ * then respects each axis's allowable range; if limits block the target,
+ * snaps to the nearest feasible pair and returns a warning note.
+ *
+ * @param {number} pA - current pick on primary axis (absolute inches)
+ * @param {number} pB - current pick on secondary axis (absolute inches)
+ * @param {string} A  - 'X'|'Y'|'Z' (primary axis key)
+ * @param {string} B  - 'X'|'Y'|'Z' (secondary axis key)
+ * @param {object} ext - { X:{min,max}, Y:{min,max}, Z:{min,max} }
+ * @param {number} MIN - minimum spread (in)
+ * @param {number} MAX - maximum spread (in)
+ * @returns {{a:number,b:number, note:string|null}}
+ */
+function enforceSpreadPair(pA, pB, A, B, ext, MIN, MAX){
+  var d = Math.hypot(pA, pB);
+  if (d < 1e-9){
+    // Edge case: both at origin—nudge to MIN along whichever axis has room
+    var roomA = Math.max(Math.abs(ext[A].min), Math.abs(ext[A].max));
+    var roomB = Math.max(Math.abs(ext[B].min), Math.abs(ext[B].max));
+    if (roomA >= MIN) return {a: signLike(MIN, ext[A].max>=0?+1:-1), b: 0, note: 'Spread forced from origin'};
+    if (roomB >= MIN) return {a: 0, b: signLike(MIN, ext[B].max>=0?+1:-1), note: 'Spread forced from origin'};
+    // Neither axis has MIN—push to max feasible on the larger room axis
+    if (roomA >= roomB) return {a: signLike(roomA, ext[A].max>=0?+1:-1), b: 0, note: 'Spread limited by axis range'};
+    return {a: 0, b: signLike(roomB, ext[B].max>=0?+1:-1), note: 'Spread limited by axis range'};
+  }
+
+  var target = clamp(d, MIN, MAX);
+  var scale  = target / d;
+  var a = pA * scale, b = pB * scale;
+
+  // Clamp to each axis's bounds first pass
+  var a1 = clamp(a, ext[A].min, ext[A].max);
+  var b1 = clamp(b, ext[B].min, ext[B].max);
+
+  // If neither hit a clamp hard, we’re done
+  if (Math.abs(a1-a)<1e-9 && Math.abs(b1-b)<1e-9){
+    return {a:a1, b:b1, note: null};
+  }
+
+  // Second pass: if one axis hit a limit, solve the other to keep target distance
+  function trySolveKeepTarget(lockedA, valA, wantTarget, refB, Bkey){
+    var neededB = Math.sqrt(Math.max(0, wantTarget*wantTarget - valA*valA));
+    // Maintain original sign of B
+    neededB = signLike(neededB, refB);
+    return clamp(neededB, ext[Bkey].min, ext[Bkey].max);
+  }
+  var a2 = a1, b2 = b1;
+  if (Math.abs(a1-a) >= 1e-9){
+    b2 = trySolveKeepTarget(true, a1, target, pB, B);
+  }
+  if (Math.abs(b1-b) >= 1e-9){
+    a2 = trySolveKeepTarget(true, b1, target, pA, A); // reuse function by symmetry
+  }
+
+  // If still off, accept nearest feasible and annotate
+  var d2 = Math.hypot(a2, b2);
+  if (d2 < MIN || d2 > MAX){
+    return {a:a2, b:b2, note:'Spread limited by geometry ('+Math.round(d2)+'″) — check clearances or switch pick axes.'};
+  }
+  return {a:a2, b:b2, note: null};
+}
     /* Output (combined) */
     function distLabel(axis, val){
   if(togglePrevCouplingEl.checked){
@@ -496,23 +602,88 @@ if (pickMode === '2') {
   html += '<div class="warn" style="margin-top:6px"><b>Heads up:</b> ' + warnings.join(' ') + '</div>';
 }
     summaryDiv.innerHTML = html;
-/* Layman steps */
-function laymanSide(title, pair){
-  var aTxtFI = fmtFtIn(pair.a), bTxtFI = fmtFtIn(pair.b);
-  var aTxtIn = pair.a.toFixed(1)+'"', bTxtIn = pair.b.toFixed(1)+'"';
-  var p1off = distLabel(axes[0], pair.pickA), p2off = distLabel((axes[1]||axes[0]), pair.pickB);
-  var warn = pair.needsMore ? '<div class="warn" style="margin-top:6px;">NEEDS MORE RIGGING — one leg shorter than 12″</div>' : '';
-  return (
-    '<h4>'+title+' choker ('+axes[0]+'/'+(axes[1]||axes[0])+')</h4>'+
-    '<ul>'+
-      '<li>Set <b>'+axes[0]+' pick</b> at <b>'+pair.pickA.toFixed(2)+'″</b> ('+p1off+')</li>'+
-      '<li>Set <b>'+(axes[1]||axes[0])+' pick</b> at <b>'+pair.pickB.toFixed(2)+'″</b> ('+p2off+')</li>'+
-      '<li>Cut legs: <b>'+axes[0]+'-leg '+aTxtFI+' ('+aTxtIn+')</b> + <b>'+(axes[1]||axes[0])+'-leg '+bTxtFI+' ('+bTxtIn+')</b> = 20′</li>'+
-      '<li>Confirm level; keep bight fixed</li>'+
-    '</ul>'+warn
-  );
+/* Layman steps — simple, numbered, and literal */
+function fmtFtInSigned(x){
+  var s = x<0 ? '-' : '';
+  var v = Math.abs(x);
+  var ft = Math.floor(v/12);
+  var rem = v - ft*12, whole = Math.floor(rem), frac = rem - whole;
+  var fracStr = (Math.abs(frac)<1e-6)? '' : (Math.abs(frac-0.5)<1e-6? '-1/2' : '');
+  var inch = whole + (fracStr||'') + '"';
+  return s + (ft? (ft+"' "+inch) : inch);
 }
-laymanDiv.innerHTML = laymanSide('Left', leftPair) + laymanSide('Right', rightPair);
+function fmtBoth(x){ return fmtFtInSigned(x) + ' (' + (Math.round(x*10)/10).toFixed(1) + '")'; }
+
+function offsetValue(axis, val){
+  if(togglePrevCouplingEl.checked){
+    var cx = Number(cXEl.value||0), cy = Number(cYEl.value||0), cz = Number(cZEl.value||0);
+    if(axis==='X') return val - cx;
+    if(axis==='Y') return val - cy;
+    return val - cz; // Z
+  }else{
+    return val - ext[axis].min;
+  }
+}
+
+function okBad(bool){ return bool ? 'OK' : 'ADJUST'; }
+
+function laymanSide(title, pair){
+  // Pretty values
+  var pickA_here  = fmtBoth(pair.pickA);
+  var pickB_here  = fmtBoth(pair.pickB);
+  var offA_here   = fmtBoth(offsetValue(axes[0], pair.pickA));
+  var offB_here   = fmtBoth(offsetValue((axes[1]||axes[0]), pair.pickB));
+  var legA_hereFI = fmtFtInSigned(pair.a) + ' (' + pair.a.toFixed(1) + '")';
+  var legB_hereFI = fmtFtInSigned(pair.b) + ' (' + pair.b.toFixed(1) + '")';
+
+  // Spread check (distance between the two pick points for this side in the pick plane)
+  var spread_in   = Math.hypot(pair.pickA, pair.pickB);
+  var spread_txt  = fmtBoth(spread_in);
+  var spread_ok   = spread_in >= 24 && spread_in <= 72;   // 2 ft–6 ft
+  var short_leg   = pair.needsMore; // any leg < 12"
+
+  // 5-step recipe, no jargon
+  var html = '';
+  html += '<h4>'+title+' choker ('+axes[0]+' / '+(axes[1]||axes[0])+')</h4>';
+  html += '<ol>';
+  html += '  <li><b>Mark the picks</b><br>';
+  html += '      • On <b>'+axes[0]+'</b>: '+pickA_here+' &nbsp;<span class="muted">[offset '+offA_here+']</span><br>';
+  html += '      • On <b>'+(axes[1]||axes[0])+'</b>: '+pickB_here+' &nbsp;<span class="muted">[offset '+offB_here+']</span></li>';
+  html += '  <li><b>Cut the legs</b><br>';
+  html += '      • <b>'+axes[0]+'-leg</b>: '+legA_hereFI+'<br>';
+  html += '      • <b>'+(axes[1]||axes[0])+'-leg</b>: '+legB_hereFI+'<br>';
+  html += '      <span class="muted">Two legs together = 20′ total.</span></li>';
+  html += '  <li><b>Build the choker</b>: run both legs through the bight, choke the pipe. <b>Keep the bight fixed</b> while you adjust.</li>';
+  html += '  <li><b>Hook in</b>: clip each leg to its mark you made above on the two axes.</li>';
+  html += '  <li><b>Quick checks</b><br>';
+  html += '      • <b>Spread</b> between the two legs on this side: '+spread_txt+' — <b>'+okBad(spread_ok)+'</b> (want 2′–6′)<br>';
+  html += '      • <b>Short-leg?</b> '+(short_leg ? '<span class="warn">One leg &lt; 12″ — add more rigging or re-pick.</span>' : 'No, both ≥ 12″')+'</li>';
+  html += '</ol>';
+  return html;
+}
+
+// Global roll note (same for both sides)
+var PIPE_R_IN = 12;
+var roll_deg = (PIPE_R_IN>0)? (Math.asin(Math.max(-1,Math.min(1, cg[1]/PIPE_R_IN)))*180/Math.PI) : 0;
+var roll_side = cg[1]>0 ? 'toward +Y (toward you)' : (cg[1]<0 ? 'toward -Y (away from you)' : 'no roll needed');
+var arc_in = PIPE_R_IN*(Math.abs(roll_deg)*Math.PI/180);
+
+// Warnings bundled (mode + spread limit notes, etc.)
+var warnBits = [];
+if (warnings && warnings.length) warnBits = warnBits.concat(warnings);
+var warnHTML = warnBits.length ? ('<div class="warn"><b>Heads up:</b> '+warnBits.join(' ')+'</div>') : '';
+
+// Final Layman block
+laymanDiv.innerHTML =
+  '<h3>Layman Steps</h3>' +
+  laymanSide('Left', leftPair) +
+  laymanSide('Right', rightPair) +
+  '<h4>Roll (if needed)</h4>' +
+  '<ul>' +
+  '  <li>Roll chokers about <b>'+Math.abs(roll_deg).toFixed(1)+'°</b> '+roll_side+'.</li>' +
+  '  <li>That’s roughly <b>'+fmtFtInSigned(arc_in)+'</b> of circumference shift on each choker.</li>' +
+  '</ul>' +
+  warnHTML;
     
     // Draw
     drawSheet([{axis:axes[0],picks:[setA.left,setA.right],ex:ext[axes[0]]},
