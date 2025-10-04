@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Complex COG Rigging Calculator — v10.9 (3D split, two bights, guards)</title>
+<title>Complex COG Rigging Calculator — v10.8 (3D split, two bights, guards)</title>
 <style>
   :root{
     --bg:#ffffff; --ink:#111; --panel:#f8f9fa; --border:#e9ecef; --accent:#0d6efd;
@@ -40,20 +40,10 @@
   .combo th, .combo td { border:1px solid var(--border); padding:8px; text-align:left; }
   .combo th { background:#eef2f7; }
   .warn { background:#fff3cd; border:1px solid #ffe69c; padding:6px 10px; border-radius:8px; display:inline-block; font-size:13px; }
-  /* Layman output box */
-  #layman{
-    background:#fff9db;
-    border:1px solid #ffe066;
-    padding:10px;
-    border-radius:10px;
-    margin-top:8px;
-    font-size:14px;
-    line-height:1.45;
-  }
 </style>
 </head>
 <body>
-<h1>Rigging CG Helper — v10.9 <span class="badge" id="badge">JS Loaded</span></h1>
+<h1>Rigging CG Helper — v10.8 <span class="badge" id="badge">JS Loaded</span></h1>
 
 <fieldset>
   <legend>Pick setup</legend>
@@ -72,27 +62,16 @@
         <option value="YZ">Y & Z</option>
       </select>
     </label>
-
-    <div>
-      <label>Coupling center (in)</label>
-      <div class="row">
-        <input id="cX" type="number" value="0" aria-label="Coupling center X">
-        <input id="cY" type="number" value="0" aria-label="Coupling center Y">
-      </div>
-      <input id="cZ" type="number" value="0" aria-label="Coupling center Z" style="margin-top:6px;">
-    </div>
-
     <div class="axis-key">
       <div><strong>X+</strong> left → right</div>
       <div><strong>Y+</strong> toward you &nbsp;&nbsp; <strong>Y−</strong> away from you</div>
       <div><strong>Z+</strong> up &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>Z−</strong> down</div>
     </div>
   </div>
-
   <label class="inline" style="align-items:center; gap:8px; margin-top:8px;">
     <input id="togglePrevCoupling" type="checkbox"> Distances from previous coupling center (axis=0)
   </label>
-  <div class="muted">Output shows <b>pick points</b> and the matching <b>20′ basket split</b> together. First leg corresponds to the <b>first axis</b>.</div>
+  <div class="muted">Output shows **pick points** and the matching **20′ basket split** together. First leg corresponds to the **first axis**.</div>
 </fieldset>
 
 <fieldset>
@@ -102,8 +81,8 @@
       <select id="itemType">
         <option value="P">24&quot; pipe (per-inch)</option>
         <option value="V">24&quot; valve (regular)</option>
-        <option value="E">24&quot; 90° elbow (LR arc)</option>
-        <option value="F">24&quot; 45° elbow (LR arc)</option>
+        <option value="E">24&quot; 90° elbow</option>
+        <option value="F">24&quot; 45° elbow</option>
         <option value="T">24&quot; tee (plain)</option>
         <option value="W">24&quot; tee with valve</option>
         <option value="G">Single 90 with valve</option>
@@ -169,7 +148,6 @@
 <fieldset>
   <legend>Output (combined)</legend>
   <div id="summary" class="out">Add items and click “Compute + Draw”.</div>
-  <div id="layman">Plain-English steps will appear here.</div>
   <div class="muted">Legend: <span class="pill left">Left</span> <span class="pill right">Right</span> <span class="pill roll">Roll</span></div>
 </fieldset>
 
@@ -180,10 +158,10 @@
 </fieldset>
 
 <script>
-(function(){ var b=document.getElementById('badge'); if(b) b.textContent='JS Loaded v10.9'; })();
+(function(){ var b=document.getElementById('badge'); if(b) b.textContent='JS Loaded v10.8'; })();
 
-if(!window.__rig_v109_wired){
-  window.__rig_v109_wired = true;
+if(!window.__rig_v108_wired){
+  window.__rig_v108_wired = true;
 
   /* Canvas / HiDPI */
   function setupCanvas(canvas, cssW, cssH) {
@@ -201,22 +179,14 @@ if(!window.__rig_v109_wired){
 
   /* Constants */
   var W_PER_IN_DEFAULT = 8.2;
-
-  // Correct LR elbow geometry for 24"
-  var W_EL90 = 475.0;
-  var R_EL90 = 36.0;
-  var S_EL90_ARC = Math.PI * 0.5 * R_EL90;   // ≈56.55"
-
-  var W_EL45 = 240.0;
-  var R_EL45 = 36.0;
-  var S_EL45_ARC = Math.PI * 0.25 * R_EL45;  // ≈28.27"
-
+  var W_EL90=475.0, S_EL90=36.0;
+  var W_EL45=240.0, S_EL45=15.0;
   var W_VALVE_BODY=451.0, L_VALVE_STD=12.0;
-  var W_TEE_BODY=477.0,  L_TEE=20.0;
-
+  var W_TEE_BODY=477.0, L_TEE=20.0;
   var LEG_TOTAL_IN = 240.0;      // 20'
   var LEG_MIN_IN   = 12.0;       // < 12" => needs more rigging
   var EPS = 1e-6;
+  var PIPE_R_IN = 12;
 
   /* Colors */
   var COLORS = {
@@ -229,8 +199,7 @@ if(!window.__rig_v109_wired){
     pickRight:(getComputedStyle(document.documentElement).getPropertyValue('--pickR') || '#32cd32').trim(),
     pipeBand:'rgba(100,100,100,0.18)',
     centerline:'#000',
-    anchor:(getComputedStyle(document.documentElement).getPropertyValue('--anchor') || '#94a3b8').trim(),
-    arrow:'#00e676'
+    anchor:(getComputedStyle(document.documentElement).getPropertyValue('--anchor') || '#94a3b8').trim()
   };
 
   /* Helpers */
@@ -246,23 +215,14 @@ if(!window.__rig_v109_wired){
     var inch = whole + (fracStr||'') + '"';
     return ft? (ft+"' "+inch) : inch;
   }
-  function fmtFtInSigned(x){
-    var s = x<0 ? '-' : '';
-    var v = Math.abs(x);
-    var ft = Math.floor(v/12);
-    var rem = v - ft*12, whole = Math.floor(rem), frac = rem - whole;
-    var fracStr = (Math.abs(frac)<1e-6)? '' : (Math.abs(frac-0.5)<1e-6? '-1/2' : '');
-    var inch = whole + (fracStr||'') + '"';
-    return s + (ft? (ft+"' "+inch) : inch);
-  }
   function fmtInches(x){ return (Math.round(x*10)/10).toFixed(1) + '"'; }
   function vEq(a,b){return a[0]===b[0]&&a[1]===b[1]&&a[2]===b[2];}
   function el(id){ return document.getElementById(id); }
 
   /* State */
   var items=[], segments=[], marks=[];
-  var ctx, sheet, summaryDiv, itemsDiv, debugDiv, laymanDiv;
-  var pickAxesEl, togglePrevCouplingEl, cXEl, cYEl, cZEl;
+  var ctx, sheet, summaryDiv, itemsDiv, debugDiv;
+  var pickAxesEl, togglePrevCouplingEl;
   var itemTypeEl, orientEl, lenRow, wpiEl, wpiLabel, lenInEl, fixedRow, fixedWEl, fixedLEl;
   var single90Row;
 
@@ -280,28 +240,20 @@ if(!window.__rig_v109_wired){
   }
   function resetAll(){
     items=[]; segments=[]; marks=[];
-    itemsDiv.innerHTML=''; summaryDiv.innerHTML='Add items and click “Compute + Draw”.';
-    laymanDiv.innerHTML='Plain-English steps will appear here.';
+    itemsDiv.innerHTML=''; summaryDiv.innerHTML='';
     ctx && ctx.clearRect(0,0,sheet.width,sheet.height);
-    el('downloadBtn').disabled = true;
     debugDiv.textContent='debug: reset';
   }
   function removeLast(){
     if(items.length===0) return;
-    items.pop(); 
-    if(itemsDiv.lastElementChild){ itemsDiv.removeChild(itemsDiv.lastElementChild); }
-    rebuildGeometry(); redrawDebug();
-    summaryDiv.innerHTML='Add items and click “Compute + Draw”.';
-    laymanDiv.innerHTML='Plain-English steps will appear here.';
-    ctx && ctx.clearRect(0,0,sheet.width,sheet.height);
-    el('downloadBtn').disabled = true;
+    items.pop(); rebuildGeometry(); redrawDebug();
   }
 
   /* Geometry */
   function getCurrentEnd(){ return segments.length===0?[0,0,0]:segments[segments.length-1].end.slice(); }
   function pushSegment(tCode,dir,L,labelIdx,drawCode,countJoint){
     var start=getCurrentEnd(); var end=[ start[0]+dir[0]*L, start[1]+dir[1]*L, start[2]+dir[2]*L ];
-    segments.push({tCode, start, end, drawCode:drawCode||tCode, countJoint: (countJoint!==false) });
+    segments.push({tCode, start, end, drawCode:drawCode||tCode, countJoint: (countJoint!==false), dir: dir.slice() });
     if(labelIdx!=null){
       var mid=[(start[0]+end[0])/2,(start[1]+end[1])/2,(start[2]+end[2])/2];
       marks.push([labelIdx,mid[0],mid[1],mid[2]]);
@@ -318,18 +270,18 @@ if(!window.__rig_v109_wired){
         L=Math.max(0, Number(L)||0);
         if(xcgLocal==null) xcgLocal=L/2;
         items.push({name,length:L,weight:W,xcg_local:xcgLocal,tCode,orientVec:ovec});
-        addItemSummary(itemWeightText(idx, name, L, W) + '  •  Dir: ' + (okey));
+        addItemSummary(itemWeightText(idx, name, L, W));
         rebuildGeometry(); redrawDebug();
       }
-      if(t==='P'){ var L=Number(lenInEl.value)||0, wpi=Number(wpiEl.value)||W_PER_IN_DEFAULT; var W=wpi*L; placeLinear('24" pipe (per-inch)',L,W,null,'P'); }
+      if(t==='P'){ var L=Number(lenInEl.value)||0, wpi=Number(wpiEl.value)||W_PER_IN_DEFAULT; var W=wpi*L; placeLinear('24\" pipe (per-inch)',L,W,null,'P'); }
       else if(t==='X'){ var Lx=Number(lenInEl.value)||0, wpiX=Number(wpiEl.value)||W_PER_IN_DEFAULT; var WX=wpiX*Lx; placeLinear('Custom per-inch',Lx,WX,null,'X'); }
       else if(t==='Y'){ var WY=Number(fixedWEl.value)||0, LY=Number(fixedLEl.value)||0; placeLinear('Custom fixed',LY,WY,null,'Y'); }
-      else if(t==='V'){ var LV=L_VALVE_STD, WV=W_VALVE_BODY; placeLinear('24" valve (regular)',LV,WV,LV/2,'V'); }
-      else if(t==='E'){ var LE=S_EL90_ARC, WE=W_EL90; placeLinear('24" 90° elbow (LR arc)', LE, WE, LE/2, 'E'); }
-      else if(t==='F'){ var LF=S_EL45_ARC, WF=W_EL45; placeLinear('24" 45° elbow (LR arc)', LF, WF, LF/2, 'F'); }
-      else if(t==='T'){ var LT=L_TEE, WT=W_TEE_BODY; placeLinear('24" tee (plain)',LT,WT,LT/2,'T'); }
-      else if(t==='W'){ var LW=L_TEE, WW=W_TEE_BODY+W_VALVE_BODY; placeLinear('24" tee with valve',LW,WW,LW/2,'W'); }
-      else if(t==='G'){ var LG=S_EL90_ARC, WG=W_EL90+W_VALVE_BODY; placeLinear('Single 90 with valve',LG,WG,LG/2,'G'); }
+      else if(t==='V'){ var LV=L_VALVE_STD, WV=W_VALVE_BODY; placeLinear('24\" valve (regular)',LV,WV,LV/2,'V'); }
+      else if(t==='E'){ var LE=S_EL90, WE=W_EL90; placeLinear('24\" 90° elbow',LE,WE,LE/2,'E'); }
+      else if(t==='F'){ var LF=S_EL45, WF=W_EL45; placeLinear('24\" 45° elbow',LF,WF,LF/2,'F'); }
+      else if(t==='T'){ var LT=L_TEE, WT=W_TEE_BODY; placeLinear('24\" tee (plain)',LT,WT,LT/2,'T'); }
+      else if(t==='W'){ var LW=L_TEE, WW=W_TEE_BODY+W_VALVE_BODY; placeLinear('24\" tee with valve',LW,WW,LW/2,'W'); }
+      else if(t==='G'){ var LG=S_EL90, WG=W_EL90+W_VALVE_BODY; placeLinear('Single 90 with valve',LG,WG,LG/2,'G'); }
     }catch(err){ debugDiv.textContent = 'debug: Add item failed: ' + (err && err.message ? err.message : err); }
   }
   function rebuildGeometry(){
@@ -349,6 +301,29 @@ if(!window.__rig_v109_wired){
     if(arr.length===0) arr=[0];
     var min=Math.min.apply(null,arr), max=Math.max.apply(null,arr);
     return {min:min,max:max,span:(max-min)};
+  }
+
+  function findPointsOnAxis(axis, val) {
+    var points = [];
+    var sel = axis === 'X' ? 0 : axis === 'Y' ? 1 : 2;
+    for (let seg of segments) {
+      let s = seg.start[sel], e = seg.end[sel];
+      let diff = Math.abs(s - e);
+      if (diff > EPS) { // along axis
+        let minse = Math.min(s, e), maxse = Math.max(s, e);
+        if (minse <= val && val <= maxse) {
+          let frac = (val - s) / (e - s);
+          let pt = seg.start.map((start_i, i) => start_i + frac * (seg.end[i] - start_i));
+          points.push({ pt, seg });
+        }
+      } else { // not along, if at val
+        if (Math.abs(s - val) < EPS) {
+          let mid_pt = seg.start.map((start_i, i) => (start_i + seg.end[i]) / 2);
+          points.push({ pt: mid_pt, seg });
+        }
+      }
+    }
+    return points;
   }
 
   /* Compute + Draw */
@@ -376,7 +351,6 @@ if(!window.__rig_v109_wired){
     }
     var axes=chooseAxes();
 
-    // Initial balanced picks on each axis
     function balancedPoints(axis){
       var ex=ext[axis], cgA=(axis==='X'?cg[0]:(axis==='Y'?cg[1]:cg[2]));
       var left = (ex.min + cgA)/2;
@@ -389,61 +363,25 @@ if(!window.__rig_v109_wired){
     var setA = balancedPoints(axes[0]);
     var setB = balancedPoints(axes[1]||axes[0]);
 
-    // Enforce 24"–72" spread per side while keeping the A:B ratio where possible
-    var MIN_SPREAD = 24, MAX_SPREAD = 72;
-    var A = axes[0], B = axes[1] || axes[0];
-
-    function clamp(x,min,max){ return Math.max(min, Math.min(max, x)); }
-    function signLike(x, ref){ return (ref>=0? 1 : -1) * Math.abs(x); }
-    function enforceSpreadPair(pA, pB, A, B, ext, MIN, MAX){
-      var d = Math.hypot(pA, pB);
-      if (d < 1e-9){
-        var roomA = Math.max(Math.abs(ext[A].min), Math.abs(ext[A].max));
-        var roomB = Math.max(Math.abs(ext[B].min), Math.abs(ext[B].max));
-        if (roomA >= MIN) return {a: signLike(MIN, ext[A].max>=0?+1:-1), b: 0, note: 'Spread forced from origin'};
-        if (roomB >= MIN) return {a: 0, b: signLike(MIN, ext[B].max>=0?+1:-1), note: 'Spread forced from origin'};
-        if (roomA >= roomB) return {a: signLike(roomA, ext[A].max>=0?+1:-1), b: 0, note: 'Spread limited by axis range'};
-        return {a: 0, b: signLike(roomB, ext[B].max>=0?+1:-1), note: 'Spread limited by axis range'};
-      }
-      var target = clamp(d, MIN, MAX);
-      var scale  = target / d;
-      var a = pA * scale, b = pB * scale;
-      var a1 = clamp(a, ext[A].min, ext[A].max);
-      var b1 = clamp(b, ext[B].min, ext[B].max);
-      if (Math.abs(a1-a)<1e-9 && Math.abs(b1-b)<1e-9){ return {a:a1, b:b1, note:null}; }
-      function solveOther(valA, wantTarget, refB, keyB){
-        var neededB = Math.sqrt(Math.max(0, wantTarget*wantTarget - valA*valA));
-        neededB = signLike(neededB, refB);
-        return clamp(neededB, ext[keyB].min, ext[keyB].max);
-      }
-      var a2=a1, b2=b1;
-      if (Math.abs(a1-a) >= 1e-9){ b2 = solveOther(a1, target, pB, B); }
-      if (Math.abs(b1-b) >= 1e-9){ a2 = solveOther(b1, target, pA, A); }
-      var d2 = Math.hypot(a2, b2);
-      if (d2 < MIN || d2 > MAX) return {a:a2, b:b2, note:'Spread limited by geometry ('+Math.round(d2)+'″).'};
-      return {a:a2, b:b2, note:null};
-    }
-
-    var warnings=[];
-    var leftAdj  = enforceSpreadPair(setA.left,  setB.left,  A, B, ext, MIN_SPREAD, MAX_SPREAD);
-    var rightAdj = enforceSpreadPair(setA.right, setB.right, A, B, ext, MIN_SPREAD, MAX_SPREAD);
-    if (leftAdj.note)  warnings.push('Left: '+leftAdj.note);
-    if (rightAdj.note) warnings.push('Right: '+rightAdj.note);
-
-    // Leg split using the ADJUSTED picks
-    function bightForSide(side){
-      if(axes[0]==='X' && axes[1]==='Y') return [cg[0], cg[1], 0];
-      if(axes[0]==='Y' && axes[1]==='X') return [cg[0], cg[1], 0];
-      if(axes[0]==='X' && axes[1]==='Z') return [cg[0], 0, cg[2]];
-      if(axes[0]==='Z' && axes[1]==='X') return [cg[0], 0, cg[2]];
-      if(axes[0]==='Y' && axes[1]==='Z') return [0, cg[1], cg[2]];
-      if(axes[0]==='Z' && axes[1]==='Y') return [0, cg[1], cg[2]];
+    /* Bight placement (two bights) by projection of CG into pick plane */
+    function bightForSide(side){ // 'L' or 'R' (same placement rule; two conceptual bights)
+      if(axes[0]==='X' && axes[1]==='Y'){ return [cg[0], cg[1], 0]; }
+      if(axes[0]==='Y' && axes[1]==='X'){ return [cg[0], cg[1], 0]; }
+      if(axes[0]==='X' && axes[1]==='Z'){ return [cg[0], 0, cg[2]]; }
+      if(axes[0]==='Z' && axes[1]==='X'){ return [cg[0], 0, cg[2]]; }
+      if(axes[0]==='Y' && axes[1]==='Z'){ return [0, cg[1], cg[2]]; }
+      if(axes[0]==='Z' && axes[1]==='Y'){ return [0, cg[1], cg[2]]; }
+      // Fallback: project to first axis plane
       return [cg[0], cg[1], 0];
     }
+
+    /* 3-D straight-line distances from bight to each axis pick */
     function pointOnAxis(axis,val){ return (axis==='X')?[val,0,0]:(axis==='Y')?[0,val,0]:[0,0,val]; }
     function d3(p,q){ var dx=p[0]-q[0], dy=p[1]-q[1], dz=p[2]-q[2]; return Math.sqrt(dx*dx+dy*dy+dz*dz); }
 
-    function split3D(side, pickA, pickB){
+    function split3D(side){ // side 'L' or 'R'
+      var pickA = (side==='L') ? setA.left : setA.right;
+      var pickB = (side==='L') ? setB.left : setB.right;
       var BLBR = bightForSide(side);
       var PA = pointOnAxis(axes[0], pickA);
       var PB = pointOnAxis(axes[1]||axes[0], pickB);
@@ -452,31 +390,33 @@ if(!window.__rig_v109_wired){
       var sum = rA + rB;
       var a_raw = LEG_TOTAL_IN * (rA / sum);
       var b_raw = LEG_TOTAL_IN - a_raw;
+
+      // Round to 0.5", then enforce exact 240" by nudging the longer leg (ties -> axis-A)
       var a = roundHalf(a_raw), b = roundHalf(b_raw);
       var delta = LEG_TOTAL_IN - (a + b);
-      if(Math.abs(delta) >= 0.25 - 1e-9){ if(a >= b) a += delta; else b += delta; a = roundHalf(a); b = roundHalf(b); }
-      else if(Math.abs(delta) > 1e-9){ if(a >= b) a += delta; else b += delta; }
+      if(Math.abs(delta) >= 0.25 - 1e-9){ // only if off by >= 0.25" due to rounding
+        if(a >= b) a += delta; else b += delta;
+        a = roundHalf(a); b = roundHalf(b);
+      } else if(Math.abs(delta) > 1e-9){
+        if(a >= b) a += delta; else b += delta;
+      }
+
       var needsMore = (a < LEG_MIN_IN) || (b < LEG_MIN_IN);
-      return { a:a, b:b, sum:roundHalf(a+b), pickA: pickA, pickB: pickB, rA:rA, rB:rB, needsMore:needsMore };
+      return {a:a, b:b, sum:roundHalf(a+b), pickA:pickA, pickB:pickB, rA:rA, rB:rB, needsMore:needsMore};
     }
 
-    var leftPair  = split3D('L', leftAdj.a,  leftAdj.b);
-    var rightPair = split3D('R', rightAdj.a, rightAdj.b);
+    var leftPair  = split3D('L');
+    var rightPair = split3D('R');
 
     /* Output (combined) */
     function distLabel(axis, val){
       if(togglePrevCouplingEl.checked){
-        var cx = Number(cXEl && cXEl.value || 0),
-            cy = Number(cYEl && cYEl.value || 0),
-            cz = Number(cZEl && cZEl.value || 0);
-        if(axis==='X') return fmtInches(val - cx);
-        if(axis==='Y') return fmtInches(val - cy);
-        return fmtInches(val - cz);
+        // previous coupling center assumed at axis=0 as field reference
+        return fmtInches(val - 0);
       }else{
         return fmtInches(val - ext[axis].min);
       }
     }
-
     var html='';
     html += '<h3>Rigging Summary</h3><ul>';
     html += '<li>Total weight: <b>'+totalW.toFixed(1)+' lb</b></li>';
@@ -504,8 +444,7 @@ if(!window.__rig_v109_wired){
     html += row('Right', rightPair);
     html += '</tbody></table>';
 
-    // Roll info (simple model using Y)
-    var PIPE_R_IN = 12;
+    // Roll info (unchanged simple model using Y)
     var roll_deg = (PIPE_R_IN>0)? (Math.asin(Math.max(-1,Math.min(1, cg[1]/PIPE_R_IN)))*180/Math.PI) : 0;
     var roll_side=cg[1]>0?'toward +Y':(cg[1]<0?'toward -Y':'no roll needed');
     var arc_in=PIPE_R_IN*(Math.abs(roll_deg)*Math.PI/180);
@@ -513,83 +452,17 @@ if(!window.__rig_v109_wired){
     html += '<li><span class="pill roll">Roll</span> chokers: ~'+roll_deg.toFixed(1)+'° '+roll_side+'</li>';
     html += '<li><span class="pill roll">Roll</span> circumference offset per choker: '+fmtFtIn(arc_in)+'</li>';
     html += '</ul>';
-    if (warnings.length){
-      html += '<div class="warn" style="margin-top:6px"><b>Heads up:</b> ' + warnings.join(' ') + '</div>';
-    }
+
     summaryDiv.innerHTML = html;
 
-    /* Layman Steps */
-    function fmtBoth(x){ return fmtFtInSigned(x) + ' (' + (Math.round(x*10)/10).toFixed(1) + '")'; }
-    function offsetValue(axis, val){
-      if(togglePrevCouplingEl.checked){
-        var cx = Number(cXEl.value||0), cy = Number(cYEl.value||0), cz = Number(cZEl.value||0);
-        if(axis==='X') return val - cx;
-        if(axis==='Y') return val - cy;
-        return val - cz; // Z
-      }else{
-        return val - ext[axis].min;
-      }
-    }
-    function okBad(bool){ return bool ? 'OK' : 'ADJUST'; }
-    function laymanSide(title, pair){
-      var pickA_here  = fmtBoth(pair.pickA);
-      var pickB_here  = fmtBoth(pair.pickB);
-      var offA_here   = fmtBoth(offsetValue(axes[0], pair.pickA));
-      var offB_here   = fmtBoth(offsetValue((axes[1]||axes[0]), pair.pickB));
-      var legA_hereFI = fmtFtInSigned(pair.a) + ' (' + pair.a.toFixed(1) + '")';
-      var legB_hereFI = fmtFtInSigned(pair.b) + ' (' + pair.b.toFixed(1) + '")';
-      var spread_in   = Math.hypot(pair.pickA, pair.pickB);
-      var spread_txt  = fmtBoth(spread_in);
-      var spread_ok   = spread_in >= 24 && spread_in <= 72;
-      var short_leg   = pair.needsMore;
-
-      var html = '';
-      html += '<h4>'+title+' choker ('+axes[0]+' / '+(axes[1]||axes[0])+')</h4>';
-      html += '<ol>';
-      html += '  <li><b>Mark the picks</b><br>';
-      html += '      • On <b>'+axes[0]+'</b>: '+pickA_here+' &nbsp;<span class="muted">[offset '+offA_here+']</span><br>';
-      html += '      • On <b>'+(axes[1]||axes[0])+'</b>: '+pickB_here+' &nbsp;<span class="muted">[offset '+offB_here+']</span></li>';
-      html += '  <li><b>Cut the legs</b><br>';
-      html += '      • <b>'+axes[0]+'-leg</b>: '+legA_hereFI+'<br>';
-      html += '      • <b>'+(axes[1]||axes[0])+'-leg</b>: '+legB_hereFI+'<br>';
-      html += '      <span class="muted">Two legs together = 20′ total.</span></li>';
-      html += '  <li><b>Build the choker</b>: run both legs through the bight, choke the pipe. <b>Keep the bight fixed</b> while you adjust.</li>';
-      html += '  <li><b>Hook in</b>: clip each leg to its mark you made above on the two axes.</li>';
-      html += '  <li><b>Quick checks</b><br>';
-      html += '      • <b>Spread</b> between the two legs on this side: '+spread_txt+' — <b>'+okBad(spread_ok)+'</b> (want 2′–6′)<br>';
-      html += '      • <b>Short-leg?</b> '+(short_leg ? '<span class="warn">One leg &lt; 12″ — add more rigging or re-pick.</span>' : 'No, both ≥ 12″')+'</li>';
-      html += '</ol>';
-      return html;
-    }
-
-    var PIPE_R_IN2 = 12;
-    var roll_deg2 = (PIPE_R_IN2>0)? (Math.asin(Math.max(-1,Math.min(1, cg[1]/PIPE_R_IN2)))*180/Math.PI) : 0;
-    var roll_side2 = cg[1]>0 ? 'toward +Y (toward you)' : (cg[1]<0 ? 'toward -Y (away from you)' : 'no roll needed');
-    var arc_in2 = PIPE_R_IN2*(Math.abs(roll_deg2)*Math.PI/180);
-    var warnBits = warnings.slice();
-    var warnHTML = warnBits.length ? ('<div class="warn"><b>Heads up:</b> '+warnBits.join(' ')+'</div>') : '';
-
-    laymanDiv.innerHTML =
-      '<h3>Layman Steps</h3>' +
-      laymanSide('Left', leftPair) +
-      laymanSide('Right', rightPair) +
-      '<h4>Roll (if needed)</h4>' +
-      '<ul>' +
-      '  <li>Roll chokers about <b>'+Math.abs(roll_deg2).toFixed(1)+'°</b> '+roll_side2+'.</li>' +
-      '  <li>That’s roughly <b>'+fmtFtInSigned(arc_in2)+'</b> of circumference shift on each choker.</li>' +
-      '</ul>' + warnHTML;
-
-    // Draw using the ADJUSTED picks
-    var picksForDraw = [
-      { axis: axes[0],            picks: [leftAdj.a,  rightAdj.a],  ex: ext[axes[0]] },
-      { axis: (axes[1]||axes[0]), picks: [leftAdj.b,  rightAdj.b],  ex: ext[(axes[1]||axes[0])] }
-    ];
-    drawSheet(picksForDraw, cg);
+    // Draw
+    drawSheet([{axis:axes[0],picks:[setA.left,setA.right],ex:ext[axes[0]]},
+               {axis:(axes[1]||axes[0]),picks:[setB.left,setB.right],ex:ext[(axes[1]||axes[0])]}]);
     el('downloadBtn').disabled=false;
   }
 
   /* Drawing */
-  function drawSheet(picksets, cg){
+  function drawSheet(picksets){
     ctx=setupCanvas(sheet, 1000, 1200);
     var W=1000,H=1200,pad=28;
     var secH=Math.floor((H-pad*4)/2);
@@ -602,11 +475,11 @@ if(!window.__rig_v109_wired){
     for(var i=0;i<segments.length;i++){ verts.push( segments[i].end.slice() ); }
     var px=verts.map(v=>v[0]), py=verts.map(v=>v[1]), pz=verts.map(v=>v[2]);
 
-    drawProjection(planRect,px,py,'Plan (X–Y)',picksets,'XY',cg);
-    drawProjection(elevRect,px,pz,'Elevation (X–Z)',picksets,'XZ',cg);
+    drawProjection(planRect,px,py,'Plan (X–Y)',picksets,'XY');
+    drawProjection(elevRect,px,pz,'Elevation (X–Z)',picksets,'XZ');
   }
 
-  function drawProjection(rect,px,py,title,picksets,plane,cg){
+  function drawProjection(rect,px,py,title,picksets,plane){
     var minX=Math.min.apply(null, px.concat([0])), maxX=Math.max.apply(null, px.concat([1]));
     var minY=Math.min.apply(null, py.concat([-1])), maxY=Math.max.apply(null, py.concat([1]));
 
@@ -653,8 +526,7 @@ if(!window.__rig_v109_wired){
       ctx.fillText(String(mk[0]), mapX(x)+4, mapY(y)-16);
     }
 
-    // Top pills + pick markers
-    var byAxis={}; picksets.forEach(function(ps){byAxis[ps.axis]=ps;});
+    // Visual pick leaders
     var topY=rect.y+10;
     function drawTopPill(x,y,w,h,color,label){
       ctx.fillStyle=color; var r=h/2;
@@ -671,106 +543,61 @@ if(!window.__rig_v109_wired){
       ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
       ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label,x+6,y-18);
     }
+
+    var byAxis={}; picksets.forEach(function(ps){byAxis[ps.axis]=ps;});
     var dimsL=[rect.x+12,160], dimsR=[rect.x+184,160];
     drawTopPill(dimsL[0],topY-8,dimsL[1],22,COLORS.pickLeft,'Left choker');
     drawTopPill(dimsR[0],topY-8,dimsR[1],22,COLORS.pickRight,'Right choker');
 
-    if(plane==='XY'){
-      if(byAxis.X){ var p=byAxis.X;
-        drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(p.picks[0]),mapY(0),COLORS.pickLeft);
-        drawPickMarker(mapX(p.picks[0]),mapY(0),COLORS.pickLeft,'L');
-        drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(p.picks[1]),mapY(0),COLORS.pickRight);
-        drawPickMarker(mapX(p.picks[1]),mapY(0),COLORS.pickRight,'R');
-      }
-      if(byAxis.Y){ var p2=byAxis.Y;
-        drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(0),mapY(p2.picks[0]),COLORS.pickLeft);
-        drawPickMarker(mapX(0),mapY(p2.picks[0]),COLORS.pickLeft,'L');
-        drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(0),mapY(p2.picks[1]),COLORS.pickRight);
-        drawPickMarker(mapX(0),mapY(p2.picks[1]),COLORS.pickRight,'R');
-      }
-    }else{
-      if(byAxis.X){ var pxs=byAxis.X;
-        drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(pxs.picks[0]),mapY(0),COLORS.pickLeft);
-        drawPickMarker(mapX(pxs.picks[0]),mapY(0),COLORS.pickLeft,'L');
-        drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(pxs.picks[1]),mapY(0),COLORS.pickRight);
-        drawPickMarker(mapX(pxs.picks[1]),mapY(0),COLORS.pickRight,'R');
-      }
-      if(byAxis.Z){ var pz=byAxis.Z;
-        drawLeader(dimsL[0]+dimsL[1]/2,topY+10,mapX(0),mapY(pz.picks[0]),COLORS.pickLeft);
-        drawPickMarker(mapX(0),mapY(pz.picks[0]),COLORS.pickLeft,'L');
-        drawLeader(dimsR[0]+dimsR[1]/2,topY+10,mapX(0),mapY(pz.picks[1]),COLORS.pickRight);
-        drawPickMarker(mapX(0),mapY(pz.picks[1]),COLORS.pickRight,'R');
-      }
-    }
+    var pillY = topY + 10;
 
-    // Bight → pick leg lines (visual)
-    function projXY(p){ return [p[0], p[1]]; }
-    function projXZ(p){ return [p[0], p[2]]; }
-    var proj = (plane==='XY')?projXY:projXZ;
+    function drawPicksForAxis(axisKey, isLeft, fallbackY) {
+      if (byAxis[axisKey]) {
+        var ps = byAxis[axisKey];
+        var index = isLeft ? 0 : 1;
+        var pickVal = ps.picks[index];
+        var color = isLeft ? COLORS.pickLeft : COLORS.pickRight;
+        var label = isLeft ? 'L' : 'R';
+        var pillX = isLeft ? dimsL[0] + dimsL[1] / 2 : dimsR[0] + dimsR[1] / 2;
 
-    function axisPick(axis,val){ return (axis==='X')?[val,0,0]:(axis==='Y')?[0,val,0]:[0,0,val]; }
-
-    var primary = picksets[0].axis; var secondary = picksets[1] ? picksets[1].axis : primary;
-
-    // bight placed at CG projected into the active plane
-    var B = (function(){
-      if(plane==='XY') return [cg[0], cg[1]];
-      return [cg[0], cg[2]];
-    })();
-
-    var L_A = axisPick(primary,  byAxis[primary].picks[0]);
-    var L_B = axisPick(secondary, byAxis[secondary].picks[0]);
-    var R_A = axisPick(primary,  byAxis[primary].picks[1]);
-    var R_B = axisPick(secondary, byAxis[secondary].picks[1]);
-
-    var L_Auv = proj(L_A), L_Buv = proj(L_B), R_Auv = proj(R_A), R_Buv = proj(R_B);
-
-    function drawLeg(u1,v1,u2,v2,color,label){
-      ctx.strokeStyle=color; ctx.lineWidth=2.5;
-      ctx.beginPath(); ctx.moveTo(mapX(u1),mapY(v1)); ctx.lineTo(mapX(u2),mapY(v2)); ctx.stroke();
-      var mx=(u1+u2)/2, my=(v1+v2)/2;
-      ctx.fillStyle='#000'; ctx.font='12px system-ui';
-      ctx.fillText(label, mapX(mx)+6, mapY(my)-14);
-    }
-    drawLeg(B[0],B[1], L_Auv[0],L_Auv[1], COLORS.pickLeft,  primary+'-leg');
-    drawLeg(B[0],B[1], L_Buv[0],L_Buv[1], COLORS.pickLeft,  secondary+'-leg');
-    drawLeg(B[0],B[1], R_Auv[0],R_Auv[1], COLORS.pickRight, primary+'-leg');
-    drawLeg(B[0],B[1], R_Buv[0],R_Buv[1], COLORS.pickRight, secondary+'-leg');
-
-    // Coupling-center arrows for offsets
-    if(togglePrevCouplingEl.checked){
-      var cx = Number(cXEl && cXEl.value || 0),
-          cy = Number(cYEl && cYEl.value || 0),
-          cz = Number(cZEl && cZEl.value || 0);
-      var Cuv = (plane==='XY')?[cx,cy]:[cx,cz];
-
-      function drawArrow(u1,v1,u2,v2,text){
-        var x1=mapX(u1), y1=mapY(v1), x2=mapX(u2), y2=mapY(v2);
-        ctx.strokeStyle=COLORS.arrow; ctx.lineWidth=2;
-        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
-        function head(xa,ya,xb,yb){ var ang=Math.atan2(yb-ya, xb-xa), sz=8;
-          ctx.beginPath();
-          ctx.moveTo(xb, yb);
-          ctx.lineTo(xb - sz*Math.cos(ang - Math.PI/6), yb - sz*Math.sin(ang - Math.PI/6));
-          ctx.moveTo(xb, yb);
-          ctx.lineTo(xb - sz*Math.cos(ang + Math.PI/6), yb - sz*Math.sin(ang + Math.PI/6));
-          ctx.stroke();
+        var attachPoints = findPointsOnAxis(axisKey, pickVal);
+        if (attachPoints.length > 0) {
+          for (let ap of attachPoints) {
+            let {pt, seg} = ap;
+            let projX = pt[0];
+            let projY = plane === 'XY' ? pt[1] : pt[2];
+            let localProjY = projY;
+            if (plane === 'XZ' && Math.abs(seg.dir[2]) < EPS) {
+              localProjY += PIPE_R_IN; // offset to top bight
+            }
+            let attachX = mapX(projX);
+            let attachY = mapY(localProjY);
+            drawLeader(pillX, pillY, attachX, attachY, color);
+            drawPickMarker(attachX, attachY, color, label);
+          }
+        } else {
+          // fallback
+          let fallbackX, fallbackYCoord;
+          if (axisKey === 'X') {
+            fallbackX = mapX(pickVal);
+            fallbackYCoord = mapY(0);
+          } else {
+            fallbackX = mapX(0);
+            fallbackYCoord = mapY(pickVal);
+          }
+          drawLeader(pillX, pillY, fallbackX, fallbackYCoord, color);
+          drawPickMarker(fallbackX, fallbackYCoord, color, label);
         }
-        head(x1,y1,x2,y2); head(x2,y2,x1,y1);
-        ctx.fillStyle=COLORS.arrow; ctx.font='12px system-ui';
-        ctx.fillText(text, (x1+x2)/2 + 6, (y1+y2)/2 - 10);
       }
-      function delta(a,b){ return Math.abs(a-b).toFixed(1)+'"'; }
-
-      // Primary axis arrows
-      drawArrow(Cuv[0],Cuv[1], L_Auv[0],L_Auv[1], delta(Cuv[0],L_Auv[0]));
-      drawArrow(Cuv[0],Cuv[1], R_Auv[0],R_Auv[1], delta(Cuv[0],R_Auv[0]));
-      // Secondary axis arrows
-      drawArrow(Cuv[0],Cuv[1], L_Buv[0],L_Buv[1], delta(Cuv[1],L_Buv[1]));
-      drawArrow(Cuv[0],Cuv[1], R_Buv[0],R_Buv[1], delta(Cuv[1],R_Buv[1]));
     }
 
-    // Frame
+    drawPicksForAxis('X', true);
+    drawPicksForAxis('X', false);
+    drawPicksForAxis('Y', true);
+    drawPicksForAxis('Y', false);
+    drawPicksForAxis('Z', true);
+    drawPicksForAxis('Z', false);
+
     ctx.strokeStyle='#cfd4d9'; ctx.lineWidth=1; ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
   }
 
@@ -792,13 +619,12 @@ if(!window.__rig_v109_wired){
 
   window.addEventListener('load', function(){
     pickAxesEl=el('pickAxes'); togglePrevCouplingEl=el('togglePrevCoupling');
-    cXEl=el('cX'); cYEl=el('cY'); cZEl=el('cZ');
     itemTypeEl=el('itemType'); orientEl=el('orient'); lenRow=el('lenRow'); wpiEl=el('wpi'); wpiLabel=el('wpiLabel'); lenInEl=el('lenIn');
     fixedRow=el('fixedRow'); fixedWEl=el('fixedW'); fixedLEl=el('fixedL');
     single90Row=el('single90Row');
-    itemsDiv=el('items'); summaryDiv=el('summary'); sheet=el('sheet'); debugDiv=el('debug'); laymanDiv=el('layman');
+    itemsDiv=el('items'); summaryDiv=el('summary'); sheet=el('sheet'); debugDiv=el('debug');
     setupCanvas(sheet); updateDetailRows(); wireOnce();
-    debugDiv.textContent='debug: ready (v10.9, adjusted picks + layman + coupling offsets + true legs)';
+    debugDiv.textContent='debug: ready (v10.8, 3D split + two bights + guards)';
   });
 }
 </script>
