@@ -165,7 +165,8 @@ if(!window.__rig_v108_wired){
 
   /* Canvas / HiDPI */
   function setupCanvas(canvas, cssW, cssH) {
-    cssW = cssW || 1000; cssH = cssH || 1200;
+    cssW = cssW || 800; // Reduced from 1000 to 800
+    cssH = cssH || 900; // Reduced from 1200 to 900
     var dpr = window.devicePixelRatio || 1;
     canvas.style.width = cssW + 'px';
     canvas.style.height = cssH + 'px';
@@ -314,16 +315,16 @@ if(!window.__rig_v108_wired){
         if (minse <= val && val <= maxse) {
           let frac = (val - s) / (e - s);
           let pt = seg.start.map((start_i, i) => start_i + frac * (seg.end[i] - start_i));
-          points.push({ pt, seg });
+          points.push({ pt, seg, dist: Math.abs(val - s) }); // Track distance for sorting
         }
       } else { // not along, if at val
         if (Math.abs(s - val) < EPS) {
           let mid_pt = seg.start.map((start_i, i) => (start_i + seg.end[i]) / 2);
-          points.push({ pt: mid_pt, seg });
+          points.push({ pt: mid_pt, seg, dist: 0 });
         }
       }
     }
-    return points;
+    return points.sort((a, b) => a.dist - b.dist).slice(0, 2); // Limit to 2 closest points
   }
 
   /* Compute + Draw */
@@ -463,11 +464,11 @@ if(!window.__rig_v108_wired){
 
   /* Drawing */
   function drawSheet(picksets){
-    ctx=setupCanvas(sheet, 1000, 1200);
-    var W=1000,H=1200,pad=28;
+    ctx=setupCanvas(sheet, 800, 900); // Reduced canvas size
+    var W=800, H=900, pad=40; // Increased pad for more top room
     var secH=Math.floor((H-pad*4)/2);
-    var planRect={x:pad,y:pad,w:W-2*pad,h:secH};
-    var elevRect={x:pad,y:pad*2+secH,w:W-2*pad,h:secH};
+    var planRect={x:pad,y:pad*2,w:W-2*pad,h:secH}; // Shifted down for top room
+    var elevRect={x:pad,y:pad*3+secH,w:W-2*pad,h:secH}; // Adjusted for consistency
 
     ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
 
@@ -486,20 +487,20 @@ if(!window.__rig_v108_wired){
     var pad=46;
     var sx=(rect.w-pad*2)/((maxX-minX)||1);
     var sy=(rect.h-pad*2)/((maxY-minY)||1);
-    var s=Math.min(sx,sy);
+    var s=Math.min(sx,sy) * 0.8; // Reduced scale for smaller drawing
     function mapX(x){ return rect.x+pad+(x-minX)*s; }
     function mapY(y){ return rect.y+rect.h-pad-(y-minY)*s; }
 
-    ctx.fillStyle='#000'; ctx.font='20px system-ui';
-    ctx.fillText(title, rect.x, rect.y-6);
+    ctx.fillStyle='#000'; ctx.font='16px system-ui'; // Reduced font size
+    ctx.fillText(title, rect.x, rect.y-10);
 
     // Axes
-    ctx.lineWidth=2;
+    ctx.lineWidth=1.5; // Reduced line width
     ctx.strokeStyle=COLORS.axisX; ctx.beginPath(); ctx.moveTo(mapX(minX), mapY(0)); ctx.lineTo(mapX(maxX), mapY(0)); ctx.stroke();
     ctx.strokeStyle=(plane==='XY')?COLORS.axisY:COLORS.axisZ;
     var x0=mapX(0); ctx.beginPath(); ctx.moveTo(x0,mapY(minY)); ctx.lineTo(x0,mapY(maxY)); ctx.stroke();
 
-    var thickness=Math.min(30, Math.max(8, s*24*0.6));
+    var thickness=Math.min(20, Math.max(6, s*24*0.4)); // Adjusted thickness
     ctx.lineCap='round';
 
     // Pipe bands
@@ -515,43 +516,43 @@ if(!window.__rig_v108_wired){
       var aX2=sg.start[0], aY2=(plane==='XY'? sg.start[1]:sg.start[2]);
       var bX2=sg.end[0],   bY2=(plane==='XY'? sg.end[1]  :sg.end[2] );
       var clr = COLORS[sg.drawCode]||COLORS.centerline;
-      ctx.strokeStyle=clr; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(mapX(aX2),mapY(aY2)); ctx.lineTo(mapX(bX2),mapY(bY2)); ctx.stroke();
+      ctx.strokeStyle=clr; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(mapX(aX2),mapY(aY2)); ctx.lineTo(mapX(bX2),mapY(bY2)); ctx.stroke();
     }
 
     // Item index labels
-    ctx.fillStyle='#000'; ctx.font='14px system-ui';
+    ctx.fillStyle='#000'; ctx.font='12px system-ui'; // Reduced font size
     for(var m=0;m<marks.length;m++){
       var mk=marks[m];
       var x=mk[1], y=(plane==='XY'? mk[2] : mk[3]);
-      ctx.fillText(String(mk[0]), mapX(x)+4, mapY(y)-16);
+      ctx.fillText(String(mk[0]), mapX(x)+2, mapY(y)-12); // Adjusted positioning
     }
 
     // Visual pick leaders
-    var topY=rect.y+10;
+    var topY=rect.y-20; // Adjusted for more top room
     function drawTopPill(x,y,w,h,color,label){
       ctx.fillStyle=color; var r=h/2;
       ctx.beginPath(); ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
       ctx.arc(x+w-r,y+r,r,-Math.PI/2,Math.PI/2); ctx.lineTo(x+r,y+h);
       ctx.arc(x+r,y+r,r,Math.PI/2,Math.PI*1.5); ctx.closePath(); ctx.fill();
-      ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label,x+8,y+3);
+      ctx.fillStyle='#000'; ctx.font='10px system-ui'; ctx.fillText(label,x+6,y+2); // Reduced font size
     }
-    function drawLeader(x1,y1,x2,y2,color){ ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); }
+    function drawLeader(x1,y1,x2,y2,color){ ctx.strokeStyle=color; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); }
     function drawPickMarker(x,y,color,label){
       ctx.strokeStyle=color; ctx.fillStyle=color;
-      ctx.beginPath(); ctx.moveTo(x,y-16); ctx.lineTo(x,y-2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(x,y-2); ctx.lineTo(x-6,y-10); ctx.moveTo(x,y-2); ctx.lineTo(x+6,y-10); ctx.stroke();
-      ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label,x+6,y-18);
+      ctx.beginPath(); ctx.moveTo(x,y-12); ctx.lineTo(x,y-2); ctx.stroke(); // Reduced length
+      ctx.beginPath(); ctx.moveTo(x,y-2); ctx.lineTo(x-4,y-8); ctx.moveTo(x,y-2); ctx.lineTo(x+4,y-8); ctx.stroke(); // Reduced markers
+      ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill(); // Reduced radius
+      ctx.fillStyle='#000'; ctx.font='10px system-ui'; ctx.fillText(label,x+4,y-14); // Adjusted positioning
     }
 
     var byAxis={}; picksets.forEach(function(ps){byAxis[ps.axis]=ps;});
-    var dimsL=[rect.x+12,160], dimsR=[rect.x+184,160];
-    drawTopPill(dimsL[0],topY-8,dimsL[1],22,COLORS.pickLeft,'Left choker');
-    drawTopPill(dimsR[0],topY-8,dimsR[1],22,COLORS.pickRight,'Right choker');
+    var dimsL=[rect.x+10,120], dimsR=[rect.x+140,120]; // Adjusted dimensions
+    drawTopPill(dimsL[0],topY,dimsL[1],18,COLORS.pickLeft,'Left choker');
+    drawTopPill(dimsR[0],topY,dimsR[1],18,COLORS.pickRight,'Right choker');
 
-    var pillY = topY + 10;
+    var pillY = topY + 20; // Adjusted for more top room
 
-    function drawPicksForAxis(axisKey, isLeft, fallbackY) {
+    function drawPicksForAxis(axisKey, isLeft) {
       if (byAxis[axisKey]) {
         var ps = byAxis[axisKey];
         var index = isLeft ? 0 : 1;
@@ -562,41 +563,36 @@ if(!window.__rig_v108_wired){
 
         var attachPoints = findPointsOnAxis(axisKey, pickVal);
         if (attachPoints.length > 0) {
-          for (let ap of attachPoints) {
+          // Use only the first two points
+          attachPoints.slice(0, 2).forEach(ap => {
             let {pt, seg} = ap;
             let projX = pt[0];
             let projY = plane === 'XY' ? pt[1] : pt[2];
             let localProjY = projY;
             if (plane === 'XZ' && Math.abs(seg.dir[2]) < EPS) {
-              localProjY += PIPE_R_IN; // offset to top bight
+              localProjY += PIPE_R_IN; // Offset to top bight
             }
             let attachX = mapX(projX);
             let attachY = mapY(localProjY);
             drawLeader(pillX, pillY, attachX, attachY, color);
             drawPickMarker(attachX, attachY, color, label);
-          }
+          });
         } else {
-          // fallback
-          let fallbackX, fallbackYCoord;
-          if (axisKey === 'X') {
-            fallbackX = mapX(pickVal);
-            fallbackYCoord = mapY(0);
-          } else {
-            fallbackX = mapX(0);
-            fallbackYCoord = mapY(pickVal);
-          }
-          drawLeader(pillX, pillY, fallbackX, fallbackYCoord, color);
-          drawPickMarker(fallbackX, fallbackYCoord, color, label);
+          // Fallback to axis intersection
+          let fallbackX = axisKey === 'X' ? mapX(pickVal) : mapX(0);
+          let fallbackY = axisKey === 'X' ? mapY(0) : mapY(pickVal);
+          drawLeader(pillX, pillY, fallbackX, fallbackY, color);
+          drawPickMarker(fallbackX, fallbackY, color, label);
         }
       }
     }
 
     drawPicksForAxis('X', true);
     drawPicksForAxis('X', false);
-    drawPicksForAxis('Y', true);
-    drawPicksForAxis('Y', false);
-    drawPicksForAxis('Z', true);
-    drawPicksForAxis('Z', false);
+    if (byAxis['Y'] || byAxis['Z']) {
+      drawPicksForAxis(plane === 'XY' ? 'Y' : 'Z', true);
+      drawPicksForAxis(plane === 'XY' ? 'Y' : 'Z', false);
+    }
 
     ctx.strokeStyle='#cfd4d9'; ctx.lineWidth=1; ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
   }
