@@ -125,14 +125,15 @@
     </label>
     <label id="turnRow" style="display:none">Turn to (2nd axis for elbow/tee)
       <select id="turnTo">
-        <option value="NONE" selected>None</option>
-        <option value="X+">X+</option>
-        <option value="X-">X-</option>
-        <option value="Y+">Y+</option>
-        <option value="Y-">Y-</option>
-        <option value="Z+">Z+</option>
-        <option value="Z-">Z-</option>
-      </select>
+  <option value="NONE" selected>None</option>
+  <option value="X+">X+ (Left → Right)</option>
+  <option value="X-">X− (Right → Left)</option>
+  <option value="Y+">Y+ (Toward)</option>
+  <option value="Y-">Y− (Away)</option>
+  <option value="Z+">Z+ (Up)</option>
+  <option value="Z-">Z− (Down)</option>
+</select>
+
     </label>
   </div>
   <div class="row" id="lenRow">
@@ -154,7 +155,9 @@
 
   <button class="btn" id="addBtn" type="button">Add item</button>
   <button class="btn secondary" id="clearBtn" type="button">Clear list</button>
-
+<button class="btn danger" id="delLastBtn" type="button" style="background:#dc3545">Delete last item</button>
+ddxcx
+  
   <div class="items" id="items"></div>
   <div id="debug">debug: ready</div>
 </fieldset>
@@ -201,6 +204,18 @@ const ORIENTS={ A:[ 1,0,0], B:[-1,0,0], C:[ 0,1,0], D:[ 0,-1,0], E:[ 0,0,1], F:[
 
 /* ---------- helpers ---------- */
 function axisLabel(v){
+  function dirLayman(ax){
+  switch(ax){
+    case 'X+': return '(Left → Right)';
+    case 'X-': return '(Right → Left)';
+    case 'Y+': return '(Toward)';
+    case 'Y-': return '(Away)';
+    case 'Z+': return '(Up)';
+    case 'Z-': return '(Down)';
+    default: return '';
+  }
+}
+
   if(v[0]===1) return 'X+';
   if(v[0]===-1) return 'X-';
   if(v[1]===1) return 'Y+';
@@ -250,13 +265,14 @@ function sameOrtho(a,b){
 }
 
 /* ---------- state ---------- */
-let items=[], segments=[], marks=[], lumps=[];
+let items=[], segments=[], marks=[], lumps=[], itemsFoot=[];
 
 /* ---------- UI wiring ---------- */
 window.addEventListener('load', ()=>{
   el('itemType').addEventListener('change', updateDetailRows);
   el('addBtn').addEventListener('click', addItem);
   el('clearBtn').addEventListener('click', resetAll);
+  el('delLastBtn').addEventListener('click', deleteLastItem);
   el('computeBtn').addEventListener('click', computeAndDraw);
   el('downloadBtn').addEventListener('click', ()=>{
     const a=document.createElement('a'); const ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
@@ -318,6 +334,8 @@ function addTurnedPart(labelIdx, tCode, totalLen, totalW, dirStart, dirTurn, spl
 function addItem(){
   try{
     const t=el('itemType').value, idx=items.length+1, d=unitFromOrient(el('orient').value);
+    const seg0 = segments.length;
+const lump0 = lumps.length;
 
     function placeLinear(name, L, W, xcgLocal, tCode){
       L=Math.max(0, Number(L)||0);
@@ -331,35 +349,41 @@ function addItem(){
     if(t==='P'){
       const L=Number(el('lenIn').value)||0, wpi=Number(el('wpi').value)||W_PER_IN_DEFAULT;
       const W=wpi*L; placeLinear('24" pipe', L, W, null, 'P');
-      addItemRow(idx, `Pipe ${L.toFixed(1)} in @ ${wpi} → ${W.toFixed(1)} lb`);
-
+      const startAx = axisLabel(d);
+addItemRow(idx, `Pipe ${L.toFixed(1)} in @ ${wpi} → ${W.toFixed(1)} lb  [dir: ${startAx} ${dirLayman(startAx)}]`);
+      
     }else if(t==='X'){
       const Lx=Number(el('lenIn').value)||0, wpiX=Number(el('wpi').value)||W_PER_IN_DEFAULT;
       const WX=wpiX*Lx; placeLinear('Custom per-inch', Lx, WX, null, 'X');
-      addItemRow(idx, `Custom per-inch ${Lx.toFixed(1)} in @ ${wpiX} → ${WX.toFixed(1)} lb`);
-
+      const startAx = axisLabel(d);
+addItemRow(idx, `Custom per-inch ${Lx.toFixed(1)} in @ ${wpiX} → ${WX.toFixed(1)} lb  [dir: ${startAx} ${dirLayman(startAx)}]`);
+      
     }else if(t==='Y'){
       const WY=Number(el('fixedW').value)||0, LY=Number(el('fixedL').value)||0;
       placeLinear('Custom fixed', LY, WY, null, 'Y');
-      addItemRow(idx, `Custom fixed ${WY.toFixed(1)} lb, eff L=${LY.toFixed(1)} in`);
-
+      const startAx = axisLabel(d);
+addItemRow(idx, `Custom fixed ${WY.toFixed(1)} lb, eff L=${LY.toFixed(1)} in  [dir: ${startAx} ${dirLayman(startAx)}]`);
+      
     }else if(t==='V'){
       const LV=L_VALVE_STD, WV=W_VALVE_BODY;
       placeLinear('Valve (regular)', LV, WV, LV/2, 'V');
-      addItemRow(idx, `Valve reg L=${LV} in, W=${WV.toFixed(1)} lb`);
-
+      const startAx = axisLabel(d);
+addItemRow(idx, `Valve reg L=${LV} in, W=${WV.toFixed(1)} lb  [dir: ${startAx} ${dirLayman(startAx)}]`);
+      
     }else if(t==='C'){
       items.push({name:'Coupling', length:0, weight:W_COUP, xcg_local:0, tCode:'C'});
       pushSegment('C', d, 1, idx); // visual stub
-      addItemRow(idx, `Coupling W=${W_COUP.toFixed(1)} lb`);
-
+      const startAx = axisLabel(d);
+addItemRow(idx, `Coupling W=${W_COUP.toFixed(1)} lb  [dir: ${startAx} ${dirLayman(startAx)}]`);
+      
     }else if(t==='E'){ // 90° elbow
       const dirTurn = parseTurnDir();
       if(!dirTurn || !sameOrtho(d, dirTurn)){ throw 'Select a valid orthogonal "Turn to" for the elbow.'; }
       const Ltot = S_EL90, Wtot = W_EL90;
       items.push({name:'90° elbow', length:Ltot, weight:Wtot, xcg_local:null, tCode:'E'});
       addTurnedPart(idx, 'E', Ltot, Wtot, d, dirTurn, 0.5);
-      addItemRow(idx, `90° elbow split along ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
+const startAx = axisLabel(d), turnAx = axisLabel(dirTurn);
+addItemRow(idx, `90° elbow split along ${startAx} ${dirLayman(startAx)} → ${turnAx} ${dirLayman(turnAx)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
 
     }else if(t==='F'){ // 45° elbow
       const dirTurn = parseTurnDir();
@@ -367,7 +391,8 @@ function addItem(){
       const Ltot = S_EL45, Wtot = W_EL45;
       items.push({name:'45° elbow', length:Ltot, weight:Wtot, xcg_local:null, tCode:'F'});
       addTurnedPart(idx, 'F', Ltot, Wtot, d, dirTurn, 0.5);
-      addItemRow(idx, `45° elbow split along ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
+const startAx = axisLabel(d), turnAx = axisLabel(dirTurn);
+addItemRow(idx, `45° elbow split along ${startAx} ${dirLayman(startAx)} → ${turnAx} ${dirLayman(turnAx)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
 
     }else if(t==='T'){ // Tee
       const dirTurn = parseTurnDir();
@@ -375,7 +400,8 @@ function addItem(){
       const Ltot = L_TEE, Wtot = W_TEE_BODY;
       items.push({name:'Tee (plain)', length:Ltot, weight:Wtot, xcg_local:null, tCode:'T'});
       addTurnedPart(idx, 'T', Ltot, Wtot, d, dirTurn, 0.5);
-      addItemRow(idx, `Tee split along ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
+const startAx = axisLabel(d), turnAx = axisLabel(dirTurn);
+addItemRow(idx, `Tee split along ${startAx} ${dirLayman(startAx)} → ${turnAx} ${dirLayman(turnAx)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
 
     }else if(t==='W'){ // Tee + valve
       const dirTurn = parseTurnDir();
@@ -386,8 +412,14 @@ function addItem(){
       const segIdx = segments.length; // valve lump on branch
       pushSegment('V', dirTurn, 1, idx);
       addLumpAtSegmentMid(segIdx, W_VALVE_BODY);
-      addItemRow(idx, `Tee+valve split ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${LW} in, Tee=${W_TEE_BODY.toFixed(1)} lb, Valve=${W_VALVE_BODY.toFixed(1)} lb)`);
+const startAx = axisLabel(d), turnAx = axisLabel(dirTurn);
+addItemRow(idx, `Tee+valve ${startAx} ${dirLayman(startAx)} → ${turnAx} ${dirLayman(turnAx)} (L=${LW} in, Tee=${W_TEE_BODY.toFixed(1)} lb, Valve=${W_VALVE_BODY.toFixed(1)} lb)`);
     }
+// record footprint (how many new segments & lumps were appended by this item)
+itemsFoot.push({
+  segs: segments.length - seg0,
+  lumps: lumps.length - lump0
+});
 
     el('debug').textContent='debug: items='+items.length;
   }catch(e){
@@ -396,12 +428,37 @@ function addItem(){
 }
 
 function resetAll(){
-  items=[]; segments=[]; marks=[]; lumps=[];
+  items=[]; segments=[]; marks=[]; lumps=[]; itemsFoot=[];
   el('items').innerHTML='';
   el('summary').innerHTML='Add items and click “Compute + Draw”.';
   ctx.clearRect(0,0,sheet.width,sheet.height);
   el('debug').textContent='debug: reset';
 }
+function deleteLastItem(){
+  if(items.length===0) { el('debug').textContent='debug: nothing to delete'; return; }
+
+  // Remove last item footprint (how many segments/lumps it added)
+  const fp = itemsFoot.pop();
+  if(!fp){ el('debug').textContent='debug: no footprint, cannot delete safely'; return; }
+
+  // Trim segments & marks for this item
+  if(fp.segs>0){
+    segments.splice(segments.length - fp.segs, fp.segs);
+    marks.splice(marks.length - fp.segs, fp.segs);
+  }
+  // Trim lumps for this item
+  if(fp.lumps>0){
+    lumps.splice(lumps.length - fp.lumps, fp.lumps);
+  }
+
+  // Remove the item record and the last UI row
+  items.pop();
+  const list = el('items');
+  if(list && list.lastElementChild) list.removeChild(list.lastElementChild);
+
+  el('debug').textContent = 'debug: deleted last item; remaining items='+items.length;
+}
+
 
 /* ---------- CG with auto couplings at joints (weight only) ---------- */
 function computeCG(){
