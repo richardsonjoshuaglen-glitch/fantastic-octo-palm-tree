@@ -288,6 +288,115 @@ function sameOrtho(a,b){
   // true if a and b are orthogonal and non-zero
   return (a[0]*b[0]+a[1]*b[1]+a[2]*b[2])===0 && (a.some(v=>v!==0)) && (b.some(v=>v!==0));
 }
+  /* ---------- station model (S along the polyline) ---------- */
+// Build cumulative stationing along the sequential segments the user built.
+function buildStationModel(){
+  const Ssegs = []; // {s0, s1, len, dir:[x,y,z], start:[...], end:[...]}
+  let acc = 0;
+  for(const seg of segments){
+    const dx = seg.end[0]-seg.start[0], dy = seg.end[1]-seg.start[1], dz = seg.end[2]-seg.start[2];
+    const len = Math.hypot(dx, dy, dz);
+    const dir = len ? [dx/len, dy/len, dz/len] : [0,0,0];
+    Ssegs.push({ s0: acc, s1: acc+len, len, dir, start: seg.start, end: seg.end, tCode: seg.tCode });
+    acc += len;
+  }
+  const total = acc;
+
+  function worldPointAtS(s){ // clamp to path
+    if(!Ssegs.length) return [0,0,0];
+    if(s<=0) return Ssegs[0].start.slice();
+    if(s>=total) return Ssegs[Ssegs.length-1].end.slice();
+    for(const sg of Ssegs){
+      if(s>=sg.s0-1e-9 && s<=sg.s1+1e-9){
+        const t = sg.len ? (s - sg.s0)/sg.len : 0;
+        return [
+          sg.start[0] + (sg.end[0]-sg.start[0])*t,
+          sg.start[1] + (sg.end[1]-sg.start[1])*t,
+          sg.start[2] + (sg.end[2]-sg.start[2])*t
+        ];
+      }
+    }
+    return Ssegs[Ssegs.length-1].end.slice();
+  }
+
+  function sOfSegParam(segIdx, t){ // t in [0,1]
+    const sg = Ssegs[segIdx]; if(!sg) return 0;
+    return sg.s0 + (Math.max(0, Math.min(1, t)) * sg.len);
+  }
+
+  return { Ssegs, total, worldPointAtS, sOfSegParam };
+}
+/* Station-based keep-outs (in S units, inches since segments are inches) */
+function buildKeepoutsS(model, edgeClearIn, jointClearIn){
+  const K = [];
+  // edges
+  K.push([0, edgeClearIn]);
+  K.push([Math.max(0, model.total - edgeClearIn), model.total]);
+
+  // forbidden entire segments: C,V,T,W (pad each end by jointClearIn)
+  for(const [i, sg] of model.Ssegs.entries()){
+    if(['C','V','T','W'].includes(sg.tCode)){
+      K.push([Math.max(0, sg.s0 - jointClearIn), Math.min(model.total, sg.s1 + jointClearIn)]);
+    }
+  }
+
+  // joints: every internal junction ±jointClearIn
+  for(const sg of model.Ssegs){
+    if(sg.s0>0) K.push([sg.s0 - jointClearIn, sg.s0 + jointClearIn]);
+  }
+  // final joint (end)
+  if(model.total>0) K.push([model.total - jointClearIn, model.total + jointClearIn]);
+
+  return mergeWindows(K);
+}
+
+/* Weighted CG on station using where the weights live along the run */
+function computeCGStation(model){
+  let TW = 0, SW = 0;
+
+  // lumps are placed at segment mids — we know segIdx so S is simple:
+  for(const L of lumps){
+    const s = model.sOfSegParam(L.segIdx ?? 0, 0.5);
+    TW += L.w; SW += L.w * s;
+  }
+  // auto couplings at joints (between every pair of segments)
+  for(let j=0; j<segments.length-1; j++){
+    const sJoint = model.Ssegs[j].s1; // end of segment j
+    TW += W_COUP; SW += W_COUP * sJoint;
+  }
+  // explicit couplings already counted via lumps/segments as weight-only segments (if any)
+
+  const sCG = TW ? (SW/TW) : 0; // inches of chainage from start
+  return { sCG, TW };
+}
+
+/* Find symmetric pair about sCG on station with keep-outs and spread limit */
+function findSymmetricPairS(model, sCG, minOffsetIn, maxSpreadIn, keepoutsS){
+  const step = 0.5; // 1/2" station step
+  const maxOff = model.total/2;
+  const allowedS = (s)=>{ for(const w of keepoutsS){ if(s>=w[0] && s<=w[1]) return false; } return true; };
+
+  for(let off=Math.max(0, minOffsetIn); off<=maxOff+1e-6; off+=step){
+    let a = sCG - off, b = sCG + off;
+    a = Math.max(0, Math.min(model.total, a));
+    b = Math.max(0, Math.min(model.total, b));
+    if(b - a > maxSpreadIn) continue;
+
+    // nudge outwards symmetrically if either side lands in a keep-out
+    if(allowedS(a) && allowedS(b)) return {ok:true, s1:a, s2:b, note:null};
+
+    let aa=a, bb=b;
+    for(let k=1; k*step <= model.total+120; k++){
+      const a2 = aa - step, b2 = bb + step;
+      if(a2 < 0 || b2 > model.total) break;
+      if(b2 - a2 > maxSpreadIn) break;
+      if(allowedS(a2) && allowedS(b2)) return {ok:true, s1:a2, s2:b2, note:'nudged'};
+      aa = a2; bb = b2;
+    }
+  }
+  return {ok:false, note:'no legal symmetric pair on station'};
+}
+
 /* ---------- keep-out utilities ---------- */
 /* Collect windows on a given axis where attachments are forbidden */
 function buildKeepouts(axisIndex, edgeClearIn, jointClearIn){
@@ -444,7 +553,9 @@ function unitFromOrient(code){ return ORIENTS[code] || [1,0,0]; }
 function addLumpAtSegmentMid(segIdx, w){
   const s=segments[segIdx].start, e=segments[segIdx].end;
   const p=mid3(s,e);
-  lumps.push({p, w});
+  lumps.push({p, w, segIdx}); // keep seg index for stationing
+}
+
 }
 /* push a sub-leg and return its segment index */
 function pushLeg(dir, L, labelIdx, tCode){
@@ -663,6 +774,28 @@ function computeAndDraw(){
   if(items.length===0){ alert('Add at least one item.'); return; }
 
   const {CG,totalW}=computeCG();
+// --- Station (chainage) model for 2-pick placement ---
+const station = buildStationModel();
+const edgeClear = 6;         // keep off ends
+const jointClear = 2;        // joints ±2"
+const pulleySpreadMaxIn = 240;
+const minOffsetIn = Math.max(0, Number(el('minPairOffset').value)||12);
+
+const Kstation = buildKeepoutsS(station, edgeClear, jointClear);
+const { sCG } = computeCGStation(station);
+const pairS = findSymmetricPairS(station, sCG, minOffsetIn, pulleySpreadMaxIn, Kstation);
+
+// world positions for 2-pick (these are the real points on the run)
+let PleftW = null, PrightW = null, pairNote = null;
+if(pairS.ok){
+  PleftW  = station.worldPointAtS(pairS.s1);
+  PrightW = station.worldPointAtS(pairS.s2);
+  pairNote = pairS.note;
+}else{
+  // fallback: just place both at CG (should be rare, still drawn)
+  PleftW = PrightW = station.worldPointAtS(sCG);
+  pairNote = pairS.note;
+}
 
   // extents for all three axes
   const exX = extentAlong(0);
@@ -787,24 +920,21 @@ const FOUR = { picks: fourPicks, lines: outLines };
   const dY = (exY.span>0)? (CG[1]-exY.min) : 0;
   const dZ = (exZ.span>0)? (CG[2]-exZ.min) : 0;
 
-  // 2-pick logic
-  const axisL = chooseAxis(el('axisL').value);
-  const axisR = chooseAxis(el('axisR').value);
-  const axL = (axisL==='X'?0:(axisL==='Y'?1:2));
-  const axR = (axisR==='X'?0:(axisR==='Y'?1:2));
-  const exL = (axisL==='X'?exX:(axisL==='Y'?exY:exZ));
-  const exR = (axisR==='X'?exX:(axisR==='Y'?exY:exZ));
+  // 2-pick: report using selected axes, but positions come from station/world
+const axisL = chooseAxis(el('axisL').value);
+const axisR = chooseAxis(el('axisR').value);
+const axL = (axisL==='X'?0:(axisL==='Y'?1:2));
+const axR = (axisR==='X'?0:(axisR==='Y'?1:2));
 
-  let spacing = Number(el('pickSpacing').value)||72; if(spacing<0) spacing=0;
-  const targL = Math.max(exL.min, Math.min(exL.max, CG[axL] - spacing/2));
-  const targR = Math.max(exR.min, Math.min(exR.max, CG[axR] + spacing/2));
+const exX = extentAlong(0), exY = extentAlong(1), exZ = extentAlong(2);
+const exL = (axisL==='X'?exX:(axisL==='Y'?exY:exZ));
+const exR = (axisR==='X'?exX:(axisR==='Y'?exY:exZ));
 
-  const clear = Math.max(0, Number(el('couplingClear').value)||2);
-  const winL = couplingWindows(axL, clear);
-  const winR = couplingWindows(axR, clear);
+const posL_axis = Math.max(exL.min, Math.min(exL.max, PleftW[axL]));
+const posR_axis = Math.max(exR.min, Math.min(exR.max, PrightW[axR]));
 
-  const placedL = placeSinglePick(axL, targL, exL, winL);
-  const placedR = placeSinglePick(axR, targR, exR, winR);
+// (for drawing we’ll pass the world points directly; see step 6)
+
 
   const minEdgeL = exL.min, minEdgeR = exR.min;
 
@@ -832,9 +962,20 @@ const FOUR = { picks: fourPicks, lines: outLines };
   if(exZ.span>0) parts.push(fmtInchesQ(dZ)+' from the '+edgeName('Z'));
   if(parts.length){ html += '<div><b>'+parts.join(' and ')+'</b>.</div>'; }
 
-  html += '<h3>Pick Points</h3>';
-  html += '<div><span class="pill left">Left pick</span> axis <b>'+axisL+'</b>: '+fmtFtIn(placedL.pos - minEdgeL)+' from Left Edge</div>';
-  html += '<div><span class="pill right">Right pick</span> axis <b>'+axisR+'</b>: '+fmtFtIn(placedR.pos - minEdgeR)+' from Left Edge</div>';
+ // === NEW pick-points block (station + real 3D positions) ===
+html += '<h3>Pick Points</h3>';
+html += '<div><span class="pill left">Left pick</span> axis <b>'+axisL+'</b>: '
+       + fmtFtIn(posL_axis - exL.min)
+       + ' from Left Edge';
+html += ' &nbsp; <span class="muted">(Z at pick: '+PleftW[2].toFixed(2)+'")</span></div>';
+html += '<div><span class="pill right">Right pick</span> axis <b>'+axisR+'</b>: '
+       + fmtFtIn(posR_axis - exR.min)
+       + ' from Left Edge';
+html += ' &nbsp; <span class="muted">(Z at pick: '+PrightW[2].toFixed(2)+'")</span></div>';
+if(pairNote){
+  html += '<div class="muted">Pair note: '+pairNote+'</div>';
+}
+// === END new pick-points block ===
   if(placedL.note || placedR.note){
     html += '<div class="muted">'+[placedL.note, placedR.note].filter(Boolean).join(' · ')+'</div>';
   }
@@ -856,9 +997,15 @@ if(FOUR.picks.notes.length){
   
   el('summary').innerHTML = html;
 
-drawAll({axisL, axisR, posL:placedL.pos, posR:placedR.pos, targetRoll, rollDegInfo, CG, FOUR});
-  el('downloadBtn').disabled=false;
-}
+drawAll({
+  axisL, axisR,
+  // axis values only used for labels; we’ll also pass world points:
+  posL: posL_axis, posR: posR_axis,
+  PleftW, PrightW,                // <-- new
+  targetRoll, rollDegInfo, CG,
+  FOUR                            // keep your 4-pick object for dot overlays
+});
+
 
 /* ---------- drawing ---------- */
 function drawAll(picks){
@@ -963,8 +1110,23 @@ function drawProjection(rect, px, py, title, picks, plane, cgWorld){
     drawLeader(pillX + pillW/2, topY+12, mapX(pxCoord), mapY(pyCoord), color);
     drawPickMarker(mapX(pxCoord), mapY(pyCoord), color, label);
   }
-  drawPick(picks.axisL, picks.posL, COLORS.pickLeft, 'L');
-  drawPick(picks.axisR, picks.posR, COLORS.pickRight, 'R');
+  function drawPickWorld(P, color, label){
+  const pxCoord = P[0];
+  const pyCoord = (plane==='XY') ? P[1] : P[2];
+
+  const topY=rect.y+10;
+  const pillX = (label==='L') ? rect.x+12 : rect.x+152;
+  const pillW = 140;
+  const pillText = (label==='L') ? ('Left pick') : ('Right pick');
+
+  drawTopPill(pillX, topY-8, pillW, 20, color, pillText);
+  drawLeader(pillX + pillW/2, topY+12, mapX(pxCoord), mapY(pyCoord), color);
+  drawPickMarker(mapX(pxCoord), mapY(pyCoord), color, label);
+}
+
+ drawPickWorld(picks.PleftW,  COLORS.pickLeft,  'L');
+drawPickWorld(picks.PrightW, COLORS.pickRight, 'R');
+
   // 4-pick dots
 if(picks && picks.FOUR && picks.FOUR.picks && picks.FOUR.picks.list){
   for(const pk of picks.FOUR.picks.list){
