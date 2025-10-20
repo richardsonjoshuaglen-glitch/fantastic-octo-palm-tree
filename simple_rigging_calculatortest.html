@@ -203,18 +203,7 @@ const COLORS={
 const ORIENTS={ A:[ 1,0,0], B:[-1,0,0], C:[ 0,1,0], D:[ 0,-1,0], E:[ 0,0,1], F:[ 0,0,-1] };
 
 /* ---------- helpers ---------- */
-function axisLabel(v){
- 
-
-  if(v[0]===1) return 'X+';
-  if(v[0]===-1) return 'X-';
-  if(v[1]===1) return 'Y+';
-  if(v[1]===-1) return 'Y-';
-  if(v[2]===1) return 'Z+';
-  if(v[2]===-1) return 'Z-';
-  return '?';
-}
-   function dirLayman(ax){
+function dirLayman(ax){
   switch(ax){
     case 'X+': return '(Left → Right)';
     case 'X-': return '(Right → Left)';
@@ -224,6 +213,18 @@ function axisLabel(v){
     case 'Z-': return '(Down)';
     default: return '';
   }
+}
+
+function axisLabel(v){
+  if(v[0]===1) return 'X+';
+  if(v[0]===-1) return 'X-';
+  if(v[1]===1) return 'Y+';
+  if(v[1]===-1) return 'Y-';
+  if(v[2]===1) return 'Z+';
+  if(v[2]===-1) return 'Z-';
+  return '?';
+}
+
 function r4(x){ return Math.round(x*4)/4; }
 function r8(x){ return Math.round(x*8)/8; }
 function fmtFtIn(x){
