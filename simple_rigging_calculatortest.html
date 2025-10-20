@@ -123,6 +123,18 @@
         <option value="F">F — Z− (Down)</option>
       </select>
     </label>
+   <label id="turnRow" style="display:none">Turn to (2nd axis for elbow/tee)
+  <select id="turnTo">
+    <option value="NONE" selected>None</option>
+    <option value="X+">X+</option>
+    <option value="X-">X-</option>
+    <option value="Y+">Y+</option>
+    <option value="Y-">Y-</option>
+    <option value="Z+">Z+</option>
+    <option value="Z-">Z-</option>
+  </select>
+</label>
+
   </div>
   <div class="row" id="lenRow">
     <label>Length (in)
@@ -189,10 +201,35 @@ const COLORS={
 const ORIENTS={ A:[ 1,0,0], B:[-1,0,0], C:[ 0,1,0], D:[ 0,-1,0], E:[ 0,0,1], F:[ 0,0,-1] };
 
 /* ---------- helpers ---------- */
-function r4(x){ return Math.round(x*4)/4; }
+function axisLabel(v){
+  if(v[0]===1) return 'X+';
+  if(v[0]===-1) return 'X-';
+  if(v[1]===1) return 'Y+';
+  if(v[1]===-1) return 'Y-';
+  if(v[2]===1) return 'Z+';
+  if(v[2]===-1) return 'Z-';
+  return '?';
+}
+
+  function r4(x){ return Math.round(x*4)/4; }
 function r8(x){ return Math.round(x*8)/8; }
 /* existing ft-in formatter retained for other outputs */
 function fmtFtIn(x){
+  /* map "+/- axis" to unit vectors */
+const AXDIR = {
+  'X+':[1,0,0], 'X-':[-1,0,0],
+  'Y+':[0,1,0], 'Y-':[0,-1,0],
+  'Z+':[0,0,1], 'Z-':[0,0,-1],
+};
+
+function sameOrtho(a,b){
+  // true if a and b are orthogonal and non-zero
+  return (a[0]*b[0]+a[1]*b[1]+a[2]*b[2])===0 && (a.some(v=>v!==0)) && (b.some(v=>v!==0));
+}
+
+function mid3(a,b){ return [(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2]; }
+
+
   const v=r4(x), ft=Math.floor(v/12), rem=v-ft*12;
   const whole=Math.floor(rem), frac=Math.round((rem-whole)*100)/100;
   const map={"0":"", "0.25":"-1/4", "0.5":"-1/2", "0.75":"-3/4"};
@@ -244,6 +281,8 @@ function updateDetailRows(){
   el('lenRow').style.display = (t==='P'||t==='X')?'grid':'none';
   el('wpiLabel').style.display = (t==='P'||t==='X')?'block':'none';
   el('fixedRow').style.display = (t==='Y')?'grid':'none';
+  // show "Turn to" only for elbows/tees
+  el('turnRow').style.display = (t==='E'||t==='F'||t==='T'||t==='W') ? 'block' : 'none';
 }
 
 /* ---------- geometry ---------- */
@@ -262,12 +301,51 @@ function addItemRow(idx, txt){
 function addItem(){
   try{
     const t=el('itemType').value, idx=items.length+1, d=ORIENTS[el('orient').value]||[1,0,0];
+function parseTurnDir(){
+  const v = el('turnTo').value || 'NONE';
+  return v==='NONE' ? null : AXDIR[v];
+}
 
-    function placeLinear(name, L, W, xcgLocal, tCode){
-      L=Math.max(0, Number(L)||0);
-      if(xcgLocal==null) xcgLocal=L/2;
-      items.push({name, length:L, weight:W, xcg_local:xcgLocal, tCode});
-      pushSegment(tCode, d, L, idx);
+function unitFromOrient(orientCode){
+  return ORIENTS[orientCode] || [1,0,0];
+}
+
+/* push a sub-leg and return its segment index */
+function pushLeg(dir, L, labelIdx, tCode){
+  const sIdx = segments.length;
+  pushSegment(tCode, dir, L, labelIdx);
+  return sIdx;
+}
+
+/* Build a 2-leg part (orthogonal legs), allocate weight by leg length proportion */
+function addTurnedPart(labelIdx, tCode, totalLen, totalW, dirStart, dirTurn, splitRatio){
+  // splitRatio is fraction on first leg (0..1). If null, default 0.5
+  const r = (typeof splitRatio==='number') ? Math.max(0, Math.min(1, splitRatio)) : 0.5;
+  const L1 = totalLen * r;
+  const L2 = totalLen - L1;
+
+  const s1 = pushLeg(dirStart, Math.max(0,L1), labelIdx, tCode);
+  const s2 = pushLeg(dirTurn, Math.max(0,L2), labelIdx, tCode);
+
+  const W1 = totalLen>0 ? totalW * (L1/totalLen) : totalW/2;
+  const W2 = totalW - W1;
+
+  if(L1>0) addLumpAtSegmentMid(s1, W1);
+  if(L2>0) addLumpAtSegmentMid(s2, W2);
+}
+
+   function placeLinear(name, L, W, xcgLocal, tCode){
+  L=Math.max(0, Number(L)||0);
+  if(xcgLocal==null) xcgLocal=L/2;
+  items.push({name, length:L, weight:W, xcg_local:xcgLocal, tCode});
+
+  const segIdx = segments.length;
+  pushSegment(tCode, d, L, idx);
+
+  // lump at midpoint with full weight (pure 1-axis part)
+  addLumpAtSegmentMid(segIdx, W);
+}
+
     }
 
     if(t==='P'){
@@ -295,24 +373,43 @@ function addItem(){
       pushSegment('C', d, 1, idx); // 1" stub, visual only
       addItemRow(idx, `Coupling W=${W_COUP.toFixed(1)} lb`);
 
-    }else if(t==='E'){
-      placeLinear('90° elbow', S_EL90, W_EL90, S_EL90/2, 'E');
-      addItemRow(idx, `90° elbow L=${S_EL90} in, W=${W_EL90.toFixed(1)} lb`);
+    }else if(t==='E'){ // 90° elbow
+  const dirTurn = parseTurnDir();
+  if(!dirTurn || !sameOrtho(d, dirTurn)){ throw 'Select a valid orthogonal "Turn to" for the elbow.'; }
+  const Ltot = S_EL90, Wtot = W_EL90;
+  items.push({name:'90° elbow', length:Ltot, weight:Wtot, xcg_local:null, tCode:'E'});
+  addTurnedPart(idx, 'E', Ltot, Wtot, d, dirTurn, 0.5);
+  addItemRow(idx, `90° elbow split along ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
 
-    }else if(t==='F'){
-      placeLinear('45° elbow', S_EL45, W_EL45, S_EL45/2, 'F');
-      addItemRow(idx, `45° elbow L=${S_EL45} in, W=${W_EL45.toFixed(1)} lb`);
+}else if(t==='F'){ // 45° elbow
+  const dirTurn = parseTurnDir();
+  if(!dirTurn || !sameOrtho(d, dirTurn)){ throw 'Select a valid orthogonal "Turn to" for the elbow.'; }
+  const Ltot = S_EL45, Wtot = W_EL45;
+  items.push({name:'45° elbow', length:Ltot, weight:Wtot, xcg_local:null, tCode:'F'});
+  addTurnedPart(idx, 'F', Ltot, Wtot, d, dirTurn, 0.5); // 45° ⇒ equal legs
+  addItemRow(idx, `45° elbow split along ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
 
-    }else if(t==='T'){
-      placeLinear('Tee (plain)', L_TEE, W_TEE_BODY, L_TEE/2, 'T');
-      addItemRow(idx, `Tee L=${L_TEE} in, W=${W_TEE_BODY.toFixed(1)} lb`);
+}else if(t==='T'){ // Tee (plain) — run + branch, 50/50 for now
+  const dirTurn = parseTurnDir();
+  if(!dirTurn || !sameOrtho(d, dirTurn)){ throw 'Select a valid orthogonal "Turn to" for the tee.'; }
+  const Ltot = L_TEE, Wtot = W_TEE_BODY;
+  items.push({name:'Tee (plain)', length:Ltot, weight:Wtot, xcg_local:null, tCode:'T'});
+  addTurnedPart(idx, 'T', Ltot, Wtot, d, dirTurn, 0.5);
+  addItemRow(idx, `Tee split along ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
 
-    }else if(t==='W'){
-      const LW=L_TEE, WT=W_TEE_BODY+W_VALVE_BODY;
-      const xcg=(W_TEE_BODY*(LW/2)+W_VALVE_BODY*(LW/2))/WT;
-      placeLinear('Tee + valve', LW, WT, xcg, 'W');
-      addItemRow(idx, `Tee + valve L=${LW} in, W=${WT.toFixed(1)} lb`);
-    }
+}else if(t==='W'){ // Tee + valve — valve on branch leg
+  const dirTurn = parseTurnDir();
+  if(!dirTurn || !sameOrtho(d, dirTurn)){ throw 'Select a valid orthogonal "Turn to" for the tee+valve.'; }
+  const LW=L_TEE, WT=W_TEE_BODY+W_VALVE_BODY;
+  items.push({name:'Tee + valve', length:LW, weight:WT, xcg_local:null, tCode:'W'});
+  // First, tee body 50/50
+  addTurnedPart(idx, 'W', LW, W_TEE_BODY, d, dirTurn, 0.5);
+  // Then, add valve purely on branch leg as an extra short “weight stub” (visual 1")
+  const segIdx = segments.length;
+  pushSegment('V', dirTurn, 1, idx);
+  addLumpAtSegmentMid(segIdx, W_VALVE_BODY);
+  addItemRow(idx, `Tee+valve split ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${LW} in, Tee=${W_TEE_BODY.toFixed(1)} lb, Valve=${W_VALVE_BODY.toFixed(1)} lb)`);
+}
 
     el('debug').textContent='debug: items='+items.length;
   }catch(e){
@@ -320,8 +417,13 @@ function addItem(){
   }
 }
 
+let items=[], segments=[], marks=[], lumps=[]; // NEW lumps
+
 function resetAll(){
-  items=[]; segments=[]; marks=[];
+  items=[]; segments=[]; marks=[]; lumps=[];
+  ...
+}
+
   el('items').innerHTML='';
   el('summary').innerHTML='Add items and click “Compute + Draw”.';
   ctx.clearRect(0,0,sheet.width,sheet.height);
@@ -331,15 +433,28 @@ function resetAll(){
 /* ---------- CG with auto couplings at joints (weight only) ---------- */
 function computeCG(){
   let totalW=0, sum=[0,0,0];
-  for(let i=0;i<items.length;i++){
-    const w=items[i].weight, p=[marks[i][1],marks[i][2],marks[i][3]];
-    totalW+=w; sum=addV(sum, mulV(p,w));
+
+  // sum part lumps
+  for(const L of lumps){
+    totalW += L.w;
+    sum = addV(sum, mulV(L.p, L.w));
   }
-  // auto coupling at every joint (except before first)
+
+  // auto couplings at each joint (except before first)
   for(let j=0;j<segments.length-1;j++){
-    const end=segments[j].end; totalW+=W_COUP; sum=addV(sum, mulV(end, W_COUP));
+    const end=segments[j].end;
+    totalW += W_COUP;
+    sum = addV(sum, mulV(end, W_COUP));
   }
-  return {CG: totalW? mulV(sum,1/totalW):[0,0,0], totalW};
+
+  return { CG: totalW ? mulV(sum,1/totalW) : [0,0,0], totalW };
+}
+function addLumpAtSegmentMid(segIdx, w){
+  const s=segments[segIdx].start, e=segments[segIdx].end;
+  const p=mid3(s,e);
+  lumps.push({p, w});
+}
+
 }
 
 /* ---------- axis utilities ---------- */
