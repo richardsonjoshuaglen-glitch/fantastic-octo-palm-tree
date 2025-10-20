@@ -7,7 +7,8 @@
 <style>
   :root{
     --bg:#ffffff; --ink:#111; --panel:#f6f8fa; --border:#e9ecef; --accent:#0d6efd;
-    --pickL:#ffd60a; --pickR:#32cd32; --roll:#5bc0ff;
+    --pickL:#ffd60a; --pickR:#32cd32; --roll:#5bc0ff; pX1:'#ff6b6b', pX2:'#d63384', pS1:'#1abc9c', pS2:'#16a085',
+
   }
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:16px; color:var(--ink); background:var(--bg); }
   h1 { font-size:20px; margin:0 0 10px; display:flex; align-items:center; gap:10px;}
@@ -64,6 +65,21 @@
     </label>
   </div>
   <div class="row">
+    <div class="row">
+  <label>Second axis for extra pair
+    <select id="axisSecond">
+      <option value="AUTO" selected>Auto (Y if span ≥ 12″, else Z if span ≥ 12″, else NONE)</option>
+      <option value="Y">Force Y</option>
+      <option value="Z">Force Z</option>
+      <option value="NONE">None (4 on X)</option>
+    </select>
+  </label>
+  <label>Minimum pair offset from CG (in)
+    <input id="minPairOffset" type="number" inputmode="decimal" value="12">
+  </label>
+</div>
+<div class="muted">4-pick mode: always two picks on X; second pair goes to the selected axis. If the chosen axis span &lt; 12″, we collapse to a single pick on that axis (3-pick total). If you select NONE, all 4 picks are on X (for long straight runs).</div>
+
     <label>Nominal pick spacing (in, fluid – CG & axes take precedence)
       <input id="pickSpacing" type="number" inputmode="decimal" value="72">
     </label>
@@ -262,6 +278,116 @@ const AXDIR = {
 function sameOrtho(a,b){
   // true if a and b are orthogonal and non-zero
   return (a[0]*b[0]+a[1]*b[1]+a[2]*b[2])===0 && (a.some(v=>v!==0)) && (b.some(v=>v!==0));
+}
+/* ---------- keep-out utilities ---------- */
+/* Collect windows on a given axis where attachments are forbidden */
+function buildKeepouts(axisIndex, edgeClearIn, jointClearIn){
+  const ex = extentAlong(axisIndex);
+  const K = [];
+  // Global edges (6")
+  K.push([ex.min, ex.min + edgeClearIn]);
+  K.push([ex.max - edgeClearIn, ex.max]);
+
+  // Per-segment forbidden spans
+  for(const seg of segments){
+    const a0 = seg.start[axisIndex], a1 = seg.end[axisIndex];
+    const mn = Math.min(a0,a1), mx = Math.max(a0,a1);
+
+    // Entire segment forbidden for these types:
+    // C=coupling, V=valve, T=tee, W=tee+valve
+    if(['C','V','T','W'].includes(seg.tCode)){
+      K.push([mn - jointClearIn, mx + jointClearIn]); // pad by 2"
+    }
+  }
+
+  // Joints: ±2" around every internal joint
+  for(let j=0;j<segments.length-1;j++){
+    const end = segments[j].end[axisIndex];
+    K.push([end - jointClearIn, end + jointClearIn]);
+  }
+
+  return mergeWindows(K);
+}
+function mergeWindows(wins){
+  if(!wins.length) return [];
+  wins.sort((A,B)=>A[0]-B[0]);
+  const out=[wins[0].slice()];
+  for(let i=1;i<wins.length;i++){
+    const w=wins[i], last=out[out.length-1];
+    if(w[0] <= last[1]) last[1] = Math.max(last[1], w[1]);
+    else out.push(w.slice());
+  }
+  return out;
+}
+function allowedPoint(x, wins){ for(const w of wins){ if(x>=w[0] && x<=w[1]) return false; } return true; }
+
+/* Try to place a symmetric pair about CG along an axis, avoiding keep-outs and respecting spread & edges.
+   Returns: {ok, p1, p2, note} with p1<=p2 if ok; else {ok:false, note} */
+function findSymmetricPair(axisIndex, ex, cgCoord, keepouts, minOffsetIn, pulleySpreadMaxIn){
+  // Start from some offset >= minOffsetIn and try outward, shrinking if needed
+  // Because spacing "doesn't matter", we'll prefer the smallest legal offset from CG.
+  const step = 0.5; // 1/2" search
+  const maxOffset = ex.span/2; // can't exceed half-span
+  let best = null;
+
+  // We'll walk offset from minOffsetIn up to maxOffset
+  for(let off = Math.max(minOffsetIn, 0); off <= maxOffset + 1e-6; off += step){
+    let a = cgCoord - off, b = cgCoord + off;
+
+    // clamp to extents
+    a = Math.max(ex.min, Math.min(ex.max, a));
+    b = Math.max(ex.min, Math.min(ex.max, b));
+
+    // ensure ordering
+    if(a>b){ const t=a; a=b; b=t; }
+
+    // spread check
+    if((b-a) > pulleySpreadMaxIn) continue;
+
+    // if either point is in keepout → try nudging both outward symmetrically
+    const tryNudge = ()=>{
+      if(allowedPoint(a, keepouts) && allowedPoint(b, keepouts)) return {ok:true, p1:a, p2:b, note:null};
+
+      // nudge outward while within extents and under spread limit
+      const maxShift = ex.span + 120;
+      for(let k=1; k*step <= maxShift; k++){
+        let a2 = a - step, b2 = b + step;
+        if(a2 < ex.min || b2 > ex.max) break;
+        if((b2 - a2) > pulleySpreadMaxIn) break;
+        if(allowedPoint(a2, keepouts) && allowedPoint(b2, keepouts)) return {ok:true, p1:a2, p2:b2, note:'nudged'};
+        a = a2; b = b2;
+      }
+      return {ok:false, note:'blocked by keep-outs'};
+    };
+
+    const res = tryNudge();
+    if(res.ok){ best = res; break; }
+  }
+
+  return best || {ok:false, note:'no legal symmetric pair on axis'};
+}
+
+/* When axisSecond === 'NONE', place two pairs on X (4-on-X).
+   We choose an inner pair (near CG) and an outer pair (further out), both legal. */
+function findTwoPairsOnOneAxis(axisIndex, ex, cgCoord, keepouts, minOffsetIn, pulleySpreadMaxIn){
+  const inner = findSymmetricPair(axisIndex, ex, cgCoord, keepouts, minOffsetIn, pulleySpreadMaxIn);
+  if(!inner.ok) return {ok:false, note:'inner pair failed: '+inner.note};
+
+  // For the outer pair, start beyond inner by +12" and search
+  const outerStart = Math.max(minOffsetIn, (inner.p2 - cgCoord) + 12);
+  const outer = findSymmetricPair(axisIndex, ex, cgCoord, keepouts, outerStart, pulleySpreadMaxIn);
+  if(!outer.ok) return {ok:false, note:'outer pair failed: '+outer.note};
+
+  return {ok:true, inner, outer};
+}
+
+/* Utility: decide second axis given UI choice and spans */
+function decideSecondAxis(choice, spanY, spanZ){
+  if(choice==='Y'||choice==='Z'||choice==='NONE') return choice;
+  // AUTO: prefer Y if spanY >= 12", else Z if spanZ >= 12", else NONE
+  if(spanY >= 12) return 'Y';
+  if(spanZ >= 12) return 'Z';
+  return 'NONE';
 }
 
 /* ---------- state ---------- */
@@ -533,6 +659,119 @@ function computeAndDraw(){
   const exX = extentAlong(0);
   const exY = extentAlong(1);
   const exZ = extentAlong(2);
+  
+// ---------- FOUR-PICK SOLVER ----------
+// params
+const edgeClear = 6;        // 6" from global edges
+const jointClear = 2;       // 2" from joints & padding on forbidden segments
+const pulleySpreadMaxIn = 240; // 20 ft max per pair
+const minOffsetIn = Math.max(0, Number(el('minPairOffset').value)||12);
+
+// keep-outs per axis
+const Kx = buildKeepouts(0, edgeClear, jointClear);
+const Ky = buildKeepouts(1, edgeClear, jointClear);
+const Kz = buildKeepouts(2, edgeClear, jointClear);
+
+// second axis decision
+const axis2Choice = (el('axisSecond')?.value)||'AUTO';
+const axis2 = decideSecondAxis(axis2Choice, exY.span, exZ.span); // 'Y' | 'Z' | 'NONE'
+
+// X pair (always)
+const pairX = findSymmetricPair(0, exX, CG[0], Kx, minOffsetIn, pulleySpreadMaxIn);
+
+// Second axis pair or single
+let pairS = null, singleS = null, Saxis = axis2; // Saxis: 'Y','Z','NONE'
+if(Saxis==='Y'){
+  if(exY.span < 12){
+    singleS = {pos: CG[1], axis:'Y', collapsed:true, reason:'Y span < 12"'};
+  }else{
+    pairS = findSymmetricPair(1, exY, CG[1], Ky, minOffsetIn, pulleySpreadMaxIn);
+    if(!pairS.ok){
+      // 3-pick fallback (single on Y at CG)
+      singleS = {pos: CG[1], axis:'Y', collapsed:true, reason:pairS.note};
+      pairS = null;
+    }
+  }
+}else if(Saxis==='Z'){
+  if(exZ.span < 12){
+    singleS = {pos: CG[2], axis:'Z', collapsed:true, reason:'Z span < 12"'};
+  }else{
+    pairS = findSymmetricPair(2, exZ, CG[2], Kz, minOffsetIn, pulleySpreadMaxIn);
+    if(!pairS.ok){
+      singleS = {pos: CG[2], axis:'Z', collapsed:true, reason:pairS.note};
+      pairS = null;
+    }
+  }
+}else{
+  // NONE => 4-on-X (two pairs on X)
+  const twoX = findTwoPairsOnOneAxis(0, exX, CG[0], Kx, minOffsetIn, pulleySpreadMaxIn);
+  if(twoX.ok){
+    pairX._inner = twoX.inner; // overwrite pairX with inner for clarity?
+    pairX._outer = twoX.outer;
+  }else{
+    // If we cannot make 4 on X, just keep the first pairX and degrade to 2 or 3 with a warning.
+    pairX._warn = twoX.note;
+  }
+}
+
+// build a picks object for drawing
+const fourPicks = { list: [] , notes: [] };
+
+// X pair always exists or we warn
+if(pairX.ok){
+  fourPicks.list.push({axis:'X', pos:pairX.p1, label:'X1'});
+  fourPicks.list.push({axis:'X', pos:pairX.p2, label:'X2'});
+}else{
+  fourPicks.notes.push('Could not place symmetric pair on X: '+pairX.note);
+}
+
+if(axis2==='NONE'){
+  if(pairX._inner && pairX._outer){
+    // Use inner as X1/X2, outer as X3/X4
+    fourPicks.list = [
+      {axis:'X', pos:pairX._inner.p1, label:'X1'},
+      {axis:'X', pos:pairX._inner.p2, label:'X2'},
+      {axis:'X', pos:pairX._outer.p1, label:'X3'},
+      {axis:'X', pos:pairX._outer.p2, label:'X4'},
+    ];
+  }else if(pairX.ok){
+    // only inner exists ⇒ still just two; caller will see fewer than 4
+    if(pairX._warn) fourPicks.notes.push('4-on-X outer pair failed: '+pairX._warn);
+  }
+}else{
+  if(pairS && pairS.ok){
+    fourPicks.list.push({axis:axis2, pos:pairS.p1, label:axis2+'1'});
+    fourPicks.list.push({axis:axis2, pos:pairS.p2, label:axis2+'2'});
+  }else if(singleS){
+    fourPicks.list.push({axis:singleS.axis, pos:singleS.pos, label:singleS.axis+'(CG)'});
+    fourPicks.notes.push('Collapsed to single on '+singleS.axis+': '+(singleS.reason||'span too small/blocked'));
+  }
+}
+
+// spread warnings for any pair > 240"
+function checkSpreadWarn(axis, a, b){
+  if(Math.abs(b-a) > pulleySpreadMaxIn) fourPicks.notes.push(axis+' pair exceeds 20′; add more rigging to (D)');
+}
+const getExt = ax => ax==='X'?exX:(ax==='Y'?exY:exZ);
+function edgeDist(ax, v){ const ex = getExt(ax); return { fromMin: v-ex.min, fromMax: ex.max-v }; }
+
+// check spreads & build output lines
+const outLines = [];
+fourPicks.list.sort((A,B)=> (A.axis===B.axis) ? (A.pos-B.pos) : (A.axis<B.axis?-1:1));
+
+const seenAxes = new Map();
+for(const pk of fourPicks.list){
+  if(!seenAxes.has(pk.axis)) seenAxes.set(pk.axis, []);
+  seenAxes.get(pk.axis).push(pk.pos);
+  const ex = getExt(pk.axis);
+  outLines.push(`${pk.axis}-Axis: Pick-${pk.label} = ${fmtInchesQ(pk.pos - ex.min)} from (${pk.axis}min) ${edgeName(pk.axis).split(' ')[1]} edge`);
+}
+for(const [ax, arr] of seenAxes){
+  if(arr.length>=2){ checkSpreadWarn(ax, arr[0], arr[arr.length-1]); }
+}
+
+// stash to render/draw
+const FOUR = { picks: fourPicks, lines: outLines };
 
   // distances from MIN edge → CG (single pick at CG)
   const dX = (exX.span>0)? (CG[0]-exX.min) : 0;
@@ -594,6 +833,18 @@ function computeAndDraw(){
   html += '<div><span class="pill roll">CG roll (info)</span> ≈ '+rollDegInfo.toFixed(1)+'° '+rollSideInfo+'; circumference offset per choker ≈ '+(r8(arc)).toFixed(3).replace(/\\.000$/,'')+'"</div>';
   html += '<div style="margin-top:8px;"><span class="bigcall">SET PIPE ROLL: '+(targetRoll>=0?'+':'')+targetRoll.toFixed(1)+'° (toward '+(targetRoll>=0?'+Y':'−Y')+')</span></div>';
   html += '<div class="muted">This is the roll you give to the operator on the pipe. Use the preset above to “plumb the 45° face” (sets +45°).</div>';
+  // ---- 4-pick output ----
+html += '<h3>4-Pick Positions</h3>';
+if(FOUR.lines.length){
+  html += '<div>'+FOUR.lines.map(s=>('<div>'+s+'</div>')).join('')+'</div>';
+}else{
+  html += '<div class="muted">Could not determine 4 picks under current constraints.</div>';
+}
+if(FOUR.picks.notes.length){
+  html += '<div class="muted">'+FOUR.picks.notes.join(' · ')+'</div>';
+}
+
+  
   el('summary').innerHTML = html;
 
   drawAll({axisL, axisR, posL:placedL.pos, posR:placedR.pos, targetRoll, rollDegInfo, CG});
@@ -705,6 +956,32 @@ function drawProjection(rect, px, py, title, picks, plane, cgWorld){
   }
   drawPick(picks.axisL, picks.posL, COLORS.pickLeft, 'L');
   drawPick(picks.axisR, picks.posR, COLORS.pickRight, 'R');
+  // 4-pick dots
+if(picks && picks.FOUR && picks.FOUR.picks && picks.FOUR.picks.list){
+  for(const pk of picks.FOUR.picks.list){
+    let pxCoord = 0, pyCoord = 0;
+    if(pk.axis==='X'){ pxCoord = pk.pos; pyCoord = 0; }
+    else if(pk.axis==='Y'){ if(plane==='XY'){ pxCoord=0; pyCoord=pk.pos; } else { continue; } }
+    else if(pk.axis==='Z'){ if(plane==='XZ'){ pxCoord=0; pyCoord=pk.pos; } else { continue; } }
+
+    const color = (pk.label==='X1')? (COLORS.pX1||COLORS.pickLeft)
+                : (pk.label==='X2')? (COLORS.pX2||COLORS.pickRight)
+                : (pk.label.endsWith('1'))? (COLORS.pS1||'#1abc9c')
+                : (COLORS.pS2||'#16a085');
+
+    drawPickDot(mapX(pxCoord), mapY(pyCoord), color, pk.label);
+  }
+}
+
+function drawPickDot(x,y,color,label){
+  ctx.save();
+  ctx.fillStyle = color || '#111';
+  ctx.strokeStyle = color || '#111';
+  ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill();
+  ctx.font='12px system-ui'; ctx.fillStyle='#000';
+  ctx.fillText(label, x+6, y-6);
+  ctx.restore();
+}
 
   // CG bullseye
   if (cgWorld){
