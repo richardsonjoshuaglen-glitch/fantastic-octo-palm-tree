@@ -37,7 +37,7 @@
 </style>
 </head>
 <body>
-<h1>Rigging CG Helper — Simple 2-Pick <span class="badge" id="badge">Ready</span></h1>
+<h1>Rigging CG Helper — 2–4 Pick <span class="badge" id="badge">Ready</span></h1>
 
 <!-- OUTPUT FIRST -->
 <fieldset>
@@ -856,7 +856,7 @@ if(FOUR.picks.notes.length){
   
   el('summary').innerHTML = html;
 
-  drawAll({axisL, axisR, posL:placedL.pos, posR:placedR.pos, targetRoll, rollDegInfo, CG});
+drawAll({axisL, axisR, posL:placedL.pos, posR:placedR.pos, targetRoll, rollDegInfo, CG, FOUR});
   el('downloadBtn').disabled=false;
 }
 
