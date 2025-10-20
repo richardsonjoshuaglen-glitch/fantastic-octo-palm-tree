@@ -204,17 +204,7 @@ const ORIENTS={ A:[ 1,0,0], B:[-1,0,0], C:[ 0,1,0], D:[ 0,-1,0], E:[ 0,0,1], F:[
 
 /* ---------- helpers ---------- */
 function axisLabel(v){
-  function dirLayman(ax){
-  switch(ax){
-    case 'X+': return '(Left → Right)';
-    case 'X-': return '(Right → Left)';
-    case 'Y+': return '(Toward)';
-    case 'Y-': return '(Away)';
-    case 'Z+': return '(Up)';
-    case 'Z-': return '(Down)';
-    default: return '';
-  }
-}
+ 
 
   if(v[0]===1) return 'X+';
   if(v[0]===-1) return 'X-';
@@ -224,6 +214,16 @@ function axisLabel(v){
   if(v[2]===-1) return 'Z-';
   return '?';
 }
+   function dirLayman(ax){
+  switch(ax){
+    case 'X+': return '(Left → Right)';
+    case 'X-': return '(Right → Left)';
+    case 'Y+': return '(Toward)';
+    case 'Y-': return '(Away)';
+    case 'Z+': return '(Up)';
+    case 'Z-': return '(Down)';
+    default: return '';
+  }
 function r4(x){ return Math.round(x*4)/4; }
 function r8(x){ return Math.round(x*8)/8; }
 function fmtFtIn(x){
