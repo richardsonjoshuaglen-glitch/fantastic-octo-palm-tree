@@ -12,7 +12,7 @@
   --pX1:#ff6b6b; --pX2:#d63384; --pS1:#1abc9c; --pS2:#16a085;
 }
 
-  }
+  
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:16px; color:var(--ink); background:var(--bg); }
   h1 { font-size:20px; margin:0 0 10px; display:flex; align-items:center; gap:10px;}
   .badge{display:inline-block; padding:2px 8px; border-radius:999px; background:#d1e7dd; color:#0f5132; font-weight:700; font-size:12px;}
@@ -83,6 +83,7 @@
 </div>
 <div class="muted">4-pick mode: always two picks on X; second pair goes to the selected axis. If the chosen axis span &lt; 12″, we collapse to a single pick on that axis (3-pick total). If you select NONE, all 4 picks are on X (for long straight runs).</div>
 
+  <div class="row">
     <label>Nominal pick spacing (in, fluid – CG & axes take precedence)
       <input id="pickSpacing" type="number" inputmode="decimal" value="72">
     </label>
@@ -216,7 +217,7 @@ const COLORS={
   P:'#666666', E:'#2aa198', F:'#2aa198', V:'#ff9100', C:'#8e44ad', T:'#d33682', W:'#d33682', X:'#8d6e63', Y:'#8d6e63',
   pickLeft:getComputedStyle(document.documentElement).getPropertyValue('--pickL')||'#ffd60a',
   pickRight:getComputedStyle(document.documentElement).getPropertyValue('--pickR')||'#32cd32',
-  pipeBand:'rgba(100,100,100,0.18)', centerline:'#000', roll:'#5bc0ff'
+  pipeBand:'rgba(100,100,100,0.18)', centerline:'#000', roll:'#5bc0ff',
   pX1: getComputedStyle(document.documentElement).getPropertyValue('--pX1') || '#ff6b6b',
 pX2: getComputedStyle(document.documentElement).getPropertyValue('--pX2') || '#d63384',
 pS1: getComputedStyle(document.documentElement).getPropertyValue('--pS1') || '#1abc9c',
