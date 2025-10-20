@@ -123,18 +123,17 @@
         <option value="F">F — Z− (Down)</option>
       </select>
     </label>
-   <label id="turnRow" style="display:none">Turn to (2nd axis for elbow/tee)
-  <select id="turnTo">
-    <option value="NONE" selected>None</option>
-    <option value="X+">X+</option>
-    <option value="X-">X-</option>
-    <option value="Y+">Y+</option>
-    <option value="Y-">Y-</option>
-    <option value="Z+">Z+</option>
-    <option value="Z-">Z-</option>
-  </select>
-</label>
-
+    <label id="turnRow" style="display:none">Turn to (2nd axis for elbow/tee)
+      <select id="turnTo">
+        <option value="NONE" selected>None</option>
+        <option value="X+">X+</option>
+        <option value="X-">X-</option>
+        <option value="Y+">Y+</option>
+        <option value="Y-">Y-</option>
+        <option value="Z+">Z+</option>
+        <option value="Z-">Z-</option>
+      </select>
+    </label>
   </div>
   <div class="row" id="lenRow">
     <label>Length (in)
@@ -210,26 +209,9 @@ function axisLabel(v){
   if(v[2]===-1) return 'Z-';
   return '?';
 }
-
-  function r4(x){ return Math.round(x*4)/4; }
+function r4(x){ return Math.round(x*4)/4; }
 function r8(x){ return Math.round(x*8)/8; }
-/* existing ft-in formatter retained for other outputs */
 function fmtFtIn(x){
-  /* map "+/- axis" to unit vectors */
-const AXDIR = {
-  'X+':[1,0,0], 'X-':[-1,0,0],
-  'Y+':[0,1,0], 'Y-':[0,-1,0],
-  'Z+':[0,0,1], 'Z-':[0,0,-1],
-};
-
-function sameOrtho(a,b){
-  // true if a and b are orthogonal and non-zero
-  return (a[0]*b[0]+a[1]*b[1]+a[2]*b[2])===0 && (a.some(v=>v!==0)) && (b.some(v=>v!==0));
-}
-
-function mid3(a,b){ return [(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2]; }
-
-
   const v=r4(x), ft=Math.floor(v/12), rem=v-ft*12;
   const whole=Math.floor(rem), frac=Math.round((rem-whole)*100)/100;
   const map={"0":"", "0.25":"-1/4", "0.5":"-1/2", "0.75":"-3/4"};
@@ -237,7 +219,6 @@ function mid3(a,b){ return [(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2]; }
   const inch=(tag!==null)? (whole+tag+'"') : (rem.toFixed(2)+'"');
   return ft? (ft+"' "+inch) : inch;
 }
-/* NEW: inches-only, rounded to the nearest 1/4" → e.g., 25-3/4 inches */
 function fmtInchesQ(x){
   const v = r4(Math.max(0, x));
   const whole = Math.floor(v + 1e-9);
@@ -248,19 +229,28 @@ function fmtInchesQ(x){
   else if (Math.abs(frac - 0.75) < 1e-9) tag = '-3/4';
   return whole + (tag || (frac ? ('-'+Math.round(frac*100)/100) : '')) + ' inches';
 }
-/* NEW: human edge names for (min) edge on each axis */
 function edgeName(axis){
   if(axis==='X') return '(Xmin) left edge';
   if(axis==='Y') return '(Ymin) closest edge';
   return '(Zmin) bottom edge';
 }
-
 function addV(a,b){ return [a[0]+b[0],a[1]+b[1],a[2]+b[2]]; }
 function mulV(a,k){ return [a[0]*k,a[1]*k,a[2]*k]; }
-function dist3(a,b){ const dx=b[0]-a[0], dy=b[1]-a[1], dz=b[2]-a[2]; return Math.sqrt(dx*dx+dy*dy+dz*dz); }
+function mid3(a,b){ return [(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2]; }
+
+/* map "+/- axis" to unit vectors */
+const AXDIR = {
+  'X+':[1,0,0], 'X-':[-1,0,0],
+  'Y+':[0,1,0], 'Y-':[0,-1,0],
+  'Z+':[0,0,1], 'Z-':[0,0,-1],
+};
+function sameOrtho(a,b){
+  // true if a and b are orthogonal and non-zero
+  return (a[0]*b[0]+a[1]*b[1]+a[2]*b[2])===0 && (a.some(v=>v!==0)) && (b.some(v=>v!==0));
+}
 
 /* ---------- state ---------- */
-let items=[], segments=[], marks=[];
+let items=[], segments=[], marks=[], lumps=[];
 
 /* ---------- UI wiring ---------- */
 window.addEventListener('load', ()=>{
@@ -281,11 +271,10 @@ function updateDetailRows(){
   el('lenRow').style.display = (t==='P'||t==='X')?'grid':'none';
   el('wpiLabel').style.display = (t==='P'||t==='X')?'block':'none';
   el('fixedRow').style.display = (t==='Y')?'grid':'none';
-  // show "Turn to" only for elbows/tees
   el('turnRow').style.display = (t==='E'||t==='F'||t==='T'||t==='W') ? 'block' : 'none';
 }
 
-/* ---------- geometry ---------- */
+/* ---------- geometry + building ---------- */
 function getEnd(){ return segments.length===0?[0,0,0]:segments[segments.length-1].end.slice(); }
 function pushSegment(tCode, dir, L, labelIdx){
   const s=getEnd(), e=[s[0]+dir[0]*L, s[1]+dir[1]*L, s[2]+dir[2]*L];
@@ -296,61 +285,52 @@ function pushSegment(tCode, dir, L, labelIdx){
 function addItemRow(idx, txt){
   const d=document.createElement('div'); d.className='item'; d.textContent=(idx+'. '+txt); el('items').appendChild(d);
 }
-
-/* Add items (inline valve removed) */
-function addItem(){
-  try{
-    const t=el('itemType').value, idx=items.length+1, d=ORIENTS[el('orient').value]||[1,0,0];
 function parseTurnDir(){
   const v = el('turnTo').value || 'NONE';
   return v==='NONE' ? null : AXDIR[v];
 }
-
-function unitFromOrient(orientCode){
-  return ORIENTS[orientCode] || [1,0,0];
+function unitFromOrient(code){ return ORIENTS[code] || [1,0,0]; }
+function addLumpAtSegmentMid(segIdx, w){
+  const s=segments[segIdx].start, e=segments[segIdx].end;
+  const p=mid3(s,e);
+  lumps.push({p, w});
 }
-
 /* push a sub-leg and return its segment index */
 function pushLeg(dir, L, labelIdx, tCode){
   const sIdx = segments.length;
   pushSegment(tCode, dir, L, labelIdx);
   return sIdx;
 }
-
 /* Build a 2-leg part (orthogonal legs), allocate weight by leg length proportion */
 function addTurnedPart(labelIdx, tCode, totalLen, totalW, dirStart, dirTurn, splitRatio){
-  // splitRatio is fraction on first leg (0..1). If null, default 0.5
   const r = (typeof splitRatio==='number') ? Math.max(0, Math.min(1, splitRatio)) : 0.5;
   const L1 = totalLen * r;
   const L2 = totalLen - L1;
-
   const s1 = pushLeg(dirStart, Math.max(0,L1), labelIdx, tCode);
   const s2 = pushLeg(dirTurn, Math.max(0,L2), labelIdx, tCode);
-
   const W1 = totalLen>0 ? totalW * (L1/totalLen) : totalW/2;
   const W2 = totalW - W1;
-
   if(L1>0) addLumpAtSegmentMid(s1, W1);
   if(L2>0) addLumpAtSegmentMid(s2, W2);
 }
 
-   function placeLinear(name, L, W, xcgLocal, tCode){
-  L=Math.max(0, Number(L)||0);
-  if(xcgLocal==null) xcgLocal=L/2;
-  items.push({name, length:L, weight:W, xcg_local:xcgLocal, tCode});
+/* add items */
+function addItem(){
+  try{
+    const t=el('itemType').value, idx=items.length+1, d=unitFromOrient(el('orient').value);
 
-  const segIdx = segments.length;
-  pushSegment(tCode, d, L, idx);
-
-  // lump at midpoint with full weight (pure 1-axis part)
-  addLumpAtSegmentMid(segIdx, W);
-}
-
+    function placeLinear(name, L, W, xcgLocal, tCode){
+      L=Math.max(0, Number(L)||0);
+      if(xcgLocal==null) xcgLocal=L/2;
+      items.push({name, length:L, weight:W, xcg_local:xcgLocal, tCode});
+      const segIdx = segments.length;
+      pushSegment(tCode, d, L, idx);
+      addLumpAtSegmentMid(segIdx, W); // weight at mid
     }
 
     if(t==='P'){
       const L=Number(el('lenIn').value)||0, wpi=Number(el('wpi').value)||W_PER_IN_DEFAULT;
-      const W=wpi*L; placeLinear('24\" pipe', L, W, null, 'P');
+      const W=wpi*L; placeLinear('24" pipe', L, W, null, 'P');
       addItemRow(idx, `Pipe ${L.toFixed(1)} in @ ${wpi} → ${W.toFixed(1)} lb`);
 
     }else if(t==='X'){
@@ -370,46 +350,44 @@ function addTurnedPart(labelIdx, tCode, totalLen, totalW, dirStart, dirTurn, spl
 
     }else if(t==='C'){
       items.push({name:'Coupling', length:0, weight:W_COUP, xcg_local:0, tCode:'C'});
-      pushSegment('C', d, 1, idx); // 1" stub, visual only
+      pushSegment('C', d, 1, idx); // visual stub
       addItemRow(idx, `Coupling W=${W_COUP.toFixed(1)} lb`);
 
     }else if(t==='E'){ // 90° elbow
-  const dirTurn = parseTurnDir();
-  if(!dirTurn || !sameOrtho(d, dirTurn)){ throw 'Select a valid orthogonal "Turn to" for the elbow.'; }
-  const Ltot = S_EL90, Wtot = W_EL90;
-  items.push({name:'90° elbow', length:Ltot, weight:Wtot, xcg_local:null, tCode:'E'});
-  addTurnedPart(idx, 'E', Ltot, Wtot, d, dirTurn, 0.5);
-  addItemRow(idx, `90° elbow split along ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
+      const dirTurn = parseTurnDir();
+      if(!dirTurn || !sameOrtho(d, dirTurn)){ throw 'Select a valid orthogonal "Turn to" for the elbow.'; }
+      const Ltot = S_EL90, Wtot = W_EL90;
+      items.push({name:'90° elbow', length:Ltot, weight:Wtot, xcg_local:null, tCode:'E'});
+      addTurnedPart(idx, 'E', Ltot, Wtot, d, dirTurn, 0.5);
+      addItemRow(idx, `90° elbow split along ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
 
-}else if(t==='F'){ // 45° elbow
-  const dirTurn = parseTurnDir();
-  if(!dirTurn || !sameOrtho(d, dirTurn)){ throw 'Select a valid orthogonal "Turn to" for the elbow.'; }
-  const Ltot = S_EL45, Wtot = W_EL45;
-  items.push({name:'45° elbow', length:Ltot, weight:Wtot, xcg_local:null, tCode:'F'});
-  addTurnedPart(idx, 'F', Ltot, Wtot, d, dirTurn, 0.5); // 45° ⇒ equal legs
-  addItemRow(idx, `45° elbow split along ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
+    }else if(t==='F'){ // 45° elbow
+      const dirTurn = parseTurnDir();
+      if(!dirTurn || !sameOrtho(d, dirTurn)){ throw 'Select a valid orthogonal "Turn to" for the elbow.'; }
+      const Ltot = S_EL45, Wtot = W_EL45;
+      items.push({name:'45° elbow', length:Ltot, weight:Wtot, xcg_local:null, tCode:'F'});
+      addTurnedPart(idx, 'F', Ltot, Wtot, d, dirTurn, 0.5);
+      addItemRow(idx, `45° elbow split along ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
 
-}else if(t==='T'){ // Tee (plain) — run + branch, 50/50 for now
-  const dirTurn = parseTurnDir();
-  if(!dirTurn || !sameOrtho(d, dirTurn)){ throw 'Select a valid orthogonal "Turn to" for the tee.'; }
-  const Ltot = L_TEE, Wtot = W_TEE_BODY;
-  items.push({name:'Tee (plain)', length:Ltot, weight:Wtot, xcg_local:null, tCode:'T'});
-  addTurnedPart(idx, 'T', Ltot, Wtot, d, dirTurn, 0.5);
-  addItemRow(idx, `Tee split along ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
+    }else if(t==='T'){ // Tee
+      const dirTurn = parseTurnDir();
+      if(!dirTurn || !sameOrtho(d, dirTurn)){ throw 'Select a valid orthogonal "Turn to" for the tee.'; }
+      const Ltot = L_TEE, Wtot = W_TEE_BODY;
+      items.push({name:'Tee (plain)', length:Ltot, weight:Wtot, xcg_local:null, tCode:'T'});
+      addTurnedPart(idx, 'T', Ltot, Wtot, d, dirTurn, 0.5);
+      addItemRow(idx, `Tee split along ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${Ltot} in, W=${Wtot.toFixed(1)} lb)`);
 
-}else if(t==='W'){ // Tee + valve — valve on branch leg
-  const dirTurn = parseTurnDir();
-  if(!dirTurn || !sameOrtho(d, dirTurn)){ throw 'Select a valid orthogonal "Turn to" for the tee+valve.'; }
-  const LW=L_TEE, WT=W_TEE_BODY+W_VALVE_BODY;
-  items.push({name:'Tee + valve', length:LW, weight:WT, xcg_local:null, tCode:'W'});
-  // First, tee body 50/50
-  addTurnedPart(idx, 'W', LW, W_TEE_BODY, d, dirTurn, 0.5);
-  // Then, add valve purely on branch leg as an extra short “weight stub” (visual 1")
-  const segIdx = segments.length;
-  pushSegment('V', dirTurn, 1, idx);
-  addLumpAtSegmentMid(segIdx, W_VALVE_BODY);
-  addItemRow(idx, `Tee+valve split ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${LW} in, Tee=${W_TEE_BODY.toFixed(1)} lb, Valve=${W_VALVE_BODY.toFixed(1)} lb)`);
-}
+    }else if(t==='W'){ // Tee + valve
+      const dirTurn = parseTurnDir();
+      if(!dirTurn || !sameOrtho(d, dirTurn)){ throw 'Select a valid orthogonal "Turn to" for the tee+valve.'; }
+      const LW=L_TEE, WT=W_TEE_BODY+W_VALVE_BODY;
+      items.push({name:'Tee + valve', length:LW, weight:WT, xcg_local:null, tCode:'W'});
+      addTurnedPart(idx, 'W', LW, W_TEE_BODY, d, dirTurn, 0.5);
+      const segIdx = segments.length; // valve lump on branch
+      pushSegment('V', dirTurn, 1, idx);
+      addLumpAtSegmentMid(segIdx, W_VALVE_BODY);
+      addItemRow(idx, `Tee+valve split ${axisLabel(d)} → ${axisLabel(dirTurn)} (L=${LW} in, Tee=${W_TEE_BODY.toFixed(1)} lb, Valve=${W_VALVE_BODY.toFixed(1)} lb)`);
+    }
 
     el('debug').textContent='debug: items='+items.length;
   }catch(e){
@@ -417,13 +395,8 @@ function addTurnedPart(labelIdx, tCode, totalLen, totalW, dirStart, dirTurn, spl
   }
 }
 
-let items=[], segments=[], marks=[], lumps=[]; // NEW lumps
-
 function resetAll(){
   items=[]; segments=[]; marks=[]; lumps=[];
-  ...
-}
-
   el('items').innerHTML='';
   el('summary').innerHTML='Add items and click “Compute + Draw”.';
   ctx.clearRect(0,0,sheet.width,sheet.height);
@@ -433,28 +406,11 @@ function resetAll(){
 /* ---------- CG with auto couplings at joints (weight only) ---------- */
 function computeCG(){
   let totalW=0, sum=[0,0,0];
-
-  // sum part lumps
-  for(const L of lumps){
-    totalW += L.w;
-    sum = addV(sum, mulV(L.p, L.w));
-  }
-
-  // auto couplings at each joint (except before first)
+  for(const L of lumps){ totalW += L.w; sum = addV(sum, mulV(L.p, L.w)); }
   for(let j=0;j<segments.length-1;j++){
-    const end=segments[j].end;
-    totalW += W_COUP;
-    sum = addV(sum, mulV(end, W_COUP));
+    const end=segments[j].end; totalW += W_COUP; sum = addV(sum, mulV(end, W_COUP));
   }
-
   return { CG: totalW ? mulV(sum,1/totalW) : [0,0,0], totalW };
-}
-function addLumpAtSegmentMid(segIdx, w){
-  const s=segments[segIdx].start, e=segments[segIdx].end;
-  const p=mid3(s,e);
-  lumps.push({p, w});
-}
-
 }
 
 /* ---------- axis utilities ---------- */
@@ -477,7 +433,7 @@ function couplingWindows(axisIndex, clear){
   const windows=[];
   // explicit coupling segments
   for(let i=0;i<segments.length;i++){
-    const code=(items[i]||{}).tCode || segments[i].tCode;
+    const code=segments[i].tCode;
     if(code==='C'){
       const s=segments[i].start[axisIndex], e=segments[i].end[axisIndex];
       const pos=(s+e)/2; windows.push([pos-clear, pos+clear]);
@@ -488,7 +444,6 @@ function couplingWindows(axisIndex, clear){
     const end=segments[j].end; const pos=end[axisIndex];
     windows.push([pos-clear, pos+clear]);
   }
-  // merge overlaps
   windows.sort((A,B)=>A[0]-B[0]);
   const merged=[];
   for(const w of windows){
@@ -498,8 +453,6 @@ function couplingWindows(axisIndex, clear){
   return merged;
 }
 function allowed(x, windows){ for(const w of windows){ if(x>=w[0] && x<=w[1]) return false; } return true; }
-
-/* slide to nearest allowed spot within extents; spacing is advisory per-pick */
 function placeSinglePick(axisIndex, target, ext, windows){
   const step=0.5, maxShift=ext.span+120;
   if(target<ext.min) target=ext.min;
@@ -529,7 +482,7 @@ function computeAndDraw(){
   const dY = (exY.span>0)? (CG[1]-exY.min) : 0;
   const dZ = (exZ.span>0)? (CG[2]-exZ.min) : 0;
 
-  // 2-pick logic kept (unchanged)
+  // 2-pick logic
   const axisL = chooseAxis(el('axisL').value);
   const axisR = chooseAxis(el('axisR').value);
   const axL = (axisL==='X'?0:(axisL==='Y'?1:2));
@@ -567,7 +520,6 @@ function computeAndDraw(){
   html += '<div>Total weight: <b>'+totalW.toFixed(1)+' lb</b></div>';
   html += '<div>CG (in): X=<b>'+CG[0].toFixed(2)+'</b>, Y=<b>'+CG[1].toFixed(2)+'</b>, Z=<b>'+CG[2].toFixed(2)+'</b></div>';
 
-  /* NEW: Single-pick line in inches-quarters, from MIN edges */
   html += '<h3>Single pick (center of gravity)</h3>';
   let parts=[];
   if(exX.span>0) parts.push(fmtInchesQ(dX)+' from the '+edgeName('X'));
@@ -587,7 +539,7 @@ function computeAndDraw(){
   html += '<div class="muted">This is the roll you give to the operator on the pipe. Use the preset above to “plumb the 45° face” (sets +45°).</div>';
   el('summary').innerHTML = html;
 
-  drawAll({axisL, axisR, posL:placedL.pos, posR:placedR.pos, targetRoll, rollDegInfo});
+  drawAll({axisL, axisR, posL:placedL.pos, posR:placedR.pos, targetRoll, rollDegInfo, CG});
   el('downloadBtn').disabled=false;
 }
 
@@ -603,14 +555,30 @@ function drawAll(picks){
   const verts=[[0,0,0]]; for(let i=0;i<segments.length;i++){ verts.push(segments[i].end.slice()); }
   const px=verts.map(v=>v[0]), py=verts.map(v=>v[1]), pz=verts.map(v=>v[2]);
 
-  drawProjection(planRect, px, py, 'Plan (X–Y)', picks, 'XY');
-  drawProjection(elevRect, px, pz, 'Elevation (X–Z)', picks, 'XZ');
+  drawProjection(planRect, px, py, 'Plan (X–Y)', picks, 'XY', picks.CG);
+  drawProjection(elevRect, px, pz, 'Elevation (X–Z)', picks, 'XZ', picks.CG);
 
-  // Big roll dial at bottom for operator
   drawRollDial(W/2, H-120, 90, picks.targetRoll);
 }
 
-function drawProjection(rect, px, py, title, picks, plane){
+function drawCGBullseye(x, y, label){
+  ctx.save();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#000';
+  for (let r of [8, 14, 20]) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.stroke(); }
+  ctx.beginPath(); ctx.moveTo(x-26, y); ctx.lineTo(x+26, y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y-26); ctx.lineTo(x, y+26); ctx.stroke();
+  const pad=4, text = label || 'CG';
+  ctx.font = '12px system-ui';
+  const tw = ctx.measureText(text).width;
+  const bx = x + 10, by = y - 12, bw = tw + pad*2, bh = 18;
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#cfd4d9'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.rect(bx, by, bw, bh); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#000'; ctx.fillText(text, bx+pad, by+3);
+  ctx.restore();
+}
+
+function drawProjection(rect, px, py, title, picks, plane, cgWorld){
   const minX=Math.min.apply(null, px.concat([0])), maxX=Math.max.apply(null, px.concat([1]));
   const minY=Math.min.apply(null, py.concat([-1])), maxY=Math.max.apply(null, py.concat([1]));
 
@@ -646,7 +614,7 @@ function drawProjection(rect, px, py, title, picks, plane){
     ctx.fillText(String(mk[0]), mapX(x)+4, mapY(y)-16);
   }
 
-  // pick markers (existing)
+  // pick markers
   function drawTopPill(x,y,w,h,color,label){
     ctx.fillStyle=color; ctx.strokeStyle=color; const r=h/2;
     ctx.beginPath();
@@ -665,27 +633,28 @@ function drawProjection(rect, px, py, title, picks, plane){
     ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
     ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label, x+6, y-16);
   }
-
   function drawPick(axis, pos, color, label){
     let pxCoord=0, pyCoord=0;
     if(axis==='X'){ pxCoord=pos; pyCoord=0; }
     else if(axis==='Y'){ if(plane==='XY'){ pxCoord=0; pyCoord=pos; } else { pxCoord=0; pyCoord=0; } }
     else if(axis==='Z'){ if(plane==='XZ'){ pxCoord=0; pyCoord=pos; } else { pxCoord=0; pyCoord=0; } }
-
-    // caption pills at top
     const topY=rect.y+10;
     const pillX = (label==='L') ? rect.x+12 : rect.x+152;
     const pillW = 140;
     const pillText = (label==='L') ? ('Left pick ('+axis+')') : ('Right pick ('+axis+')');
     drawTopPill(pillX, topY-8, pillW, 20, color, pillText);
-
-    // leader and marker
     drawLeader(pillX + pillW/2, topY+12, mapX(pxCoord), mapY(pyCoord), color);
     drawPickMarker(mapX(pxCoord), mapY(pyCoord), color, label);
   }
-
   drawPick(picks.axisL, picks.posL, COLORS.pickLeft, 'L');
   drawPick(picks.axisR, picks.posR, COLORS.pickRight, 'R');
+
+  // CG bullseye
+  if (cgWorld){
+    const cgX = cgWorld[0];
+    const cgY = (plane==='XY') ? cgWorld[1] : cgWorld[2];
+    drawCGBullseye(mapX(cgX), mapY(cgY), 'CG');
+  }
 
   // border
   ctx.strokeStyle='#cfd4d9'; ctx.lineWidth=1; ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
