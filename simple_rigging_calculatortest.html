@@ -6,8 +6,11 @@
 <title>Simple COG Rigging Calculator</title>
 <style>
   :root{
-    --bg:#ffffff; --ink:#111; --panel:#f6f8fa; --border:#e9ecef; --accent:#0d6efd;
-    --pickL:#ffd60a; --pickR:#32cd32; --roll:#5bc0ff; pX1:'#ff6b6b', pX2:'#d63384', pS1:'#1abc9c', pS2:'#16a085',
+  --bg:#ffffff; --ink:#111; --panel:#f6f8fa; --border:#e9ecef; --accent:#0d6efd;
+  --pickL:#ffd60a; --pickR:#32cd32; --roll:#5bc0ff;
+  /* optional distinct colors for the 4-pick dots */
+  --pX1:#ff6b6b; --pX2:#d63384; --pS1:#1abc9c; --pS2:#16a085;
+}
 
   }
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:16px; color:var(--ink); background:var(--bg); }
@@ -64,8 +67,8 @@
       </select>
     </label>
   </div>
+
   <div class="row">
-    <div class="row">
   <label>Second axis for extra pair
     <select id="axisSecond">
       <option value="AUTO" selected>Auto (Y if span ≥ 12″, else Z if span ≥ 12″, else NONE)</option>
@@ -214,6 +217,11 @@ const COLORS={
   pickLeft:getComputedStyle(document.documentElement).getPropertyValue('--pickL')||'#ffd60a',
   pickRight:getComputedStyle(document.documentElement).getPropertyValue('--pickR')||'#32cd32',
   pipeBand:'rgba(100,100,100,0.18)', centerline:'#000', roll:'#5bc0ff'
+  pX1: getComputedStyle(document.documentElement).getPropertyValue('--pX1') || '#ff6b6b',
+pX2: getComputedStyle(document.documentElement).getPropertyValue('--pX2') || '#d63384',
+pS1: getComputedStyle(document.documentElement).getPropertyValue('--pS1') || '#1abc9c',
+pS2: getComputedStyle(document.documentElement).getPropertyValue('--pS2') || '#16a085',
+
 };
 const ORIENTS={ A:[ 1,0,0], B:[-1,0,0], C:[ 0,1,0], D:[ 0,-1,0], E:[ 0,0,1], F:[ 0,0,-1] };
 
