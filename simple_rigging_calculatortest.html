@@ -803,112 +803,84 @@ function placeSinglePick(axisIndex, target, ext, windows){
   const exY = extentAlong(1);
   const exZ = extentAlong(2);
 
-  // ---------- FOUR-PICK SOLVER ----------
-  // Reuse earlier constants without redeclaring them
-  const edgeClear4 = edgeClear;
-  const jointClear4 = jointClear;
-  const pulleySpreadMaxIn4 = pulleySpreadMaxIn;
-  const minOffsetIn4 = minOffsetIn;
-
-  // keep-outs per axis
-  const Kx = buildKeepouts(0, edgeClear4, jointClear4);
-  const Ky = buildKeepouts(1, edgeClear4, jointClear4);
-  const Kz = buildKeepouts(2, edgeClear4, jointClear4);
-
-  // second axis decision
-  const axis2Choice = (el('axisSecond')?.value)||'AUTO';
-  const axis2 = decideSecondAxis(axis2Choice, exY.span, exZ.span); // 'Y' | 'Z' | 'NONE'
-
-  // X pair (always attempts)
-  const pairX = findSymmetricPair(0, exX, CG[0], Kx, minOffsetIn4, pulleySpreadMaxIn4);
-
-  // Second axis pair or single (renamed to avoid collision with station pairS)
-  let pairS4 = null, singleS4 = null, Saxis = axis2; // Saxis: 'Y','Z','NONE'
-  if(Saxis==='Y'){
-    if(exY.span < 12){
-      singleS4 = {pos: CG[1], axis:'Y', collapsed:true, reason:'Y span < 12"'};
-    }else{
-      pairS4 = findSymmetricPair(1, exY, CG[1], Ky, minOffsetIn4, pulleySpreadMaxIn4);
-      if(!pairS4.ok){
-        singleS4 = {pos: CG[1], axis:'Y', collapsed:true, reason:pairS4.note};
-        pairS4 = null;
-      }
-    }
-  }else if(Saxis==='Z'){
-    if(exZ.span < 12){
-      singleS4 = {pos: CG[2], axis:'Z', collapsed:true, reason:'Z span < 12"'};
-    }else{
-      pairS4 = findSymmetricPair(2, exZ, CG[2], Kz, minOffsetIn4, pulleySpreadMaxIn4);
-      if(!pairS4.ok){
-        singleS4 = {pos: CG[2], axis:'Z', collapsed:true, reason:pairS4.note};
-        pairS4 = null;
-      }
-    }
-  }else{
-    // NONE => 4-on-X (two pairs on X)
-    const twoX = findTwoPairsOnOneAxis(0, exX, CG[0], Kx, minOffsetIn4, pulleySpreadMaxIn4);
-    if(twoX.ok){
-      pairX._inner = twoX.inner;
-      pairX._outer = twoX.outer;
-    }else{
-      pairX._warn = twoX.note;
-    }
+// ---------- FOUR-PICK SOLVER ----------
+const edgeClear4 = edgeClear; // 6 inches
+const jointClear4 = jointClear; // 2 inches
+const pulleySpreadMaxIn4 = pulleySpreadMaxIn; // 240 inches
+const minOffsetIn4 = minOffsetIn; // User-defined, default 12 inches
+// Keep-outs per axis
+const Kx = buildKeepouts(0, edgeClear4, jointClear4);
+const Ky = buildKeepouts(1, edgeClear4, jointClear4);
+const Kz = buildKeepouts(2, edgeClear4, jointClear4);
+// Second axis decision
+const axis2Choice = (el('axisSecond')?.value) || 'AUTO';
+const axis2 = decideSecondAxis(axis2Choice, exY.span, exZ.span); // 'Y' | 'Z' | 'NONE'
+// Initialize picks
+const fourPicks = { list: [], notes: [] };
+// X pair (always required)
+const pairX = findSymmetricPair(0, exX, CG[0], Kx, minOffsetIn4, pulleySpreadMaxIn4);
+if (pairX.ok) {
+  fourPicks.list.push({ axis: 'X', pos: pairX.p1, label: 'X1', color: COLORS.pX1 });
+  fourPicks.list.push({ axis: 'X', pos: pairX.p2, label: 'X2', color: COLORS.pX2 });
+} else {
+  fourPicks.notes.push('Could not place X pair: ' + pairX.note);
+}
+// Second pair or fallback
+if (axis2 === 'Y' && exY.span >= 12) {
+  const pairY = findSymmetricPair(1, exY, CG[1], Ky, minOffsetIn4, pulleySpreadMaxIn4);
+  if (pairY.ok) {
+    fourPicks.list.push({ axis: 'Y', pos: pairY.p1, label: 'Y1', color: COLORS.pS1 });
+    fourPicks.list.push({ axis: 'Y', pos: pairY.p2, label: 'Y2', color: COLORS.pS2 });
+  } else {
+    fourPicks.notes.push('Could not place Y pair: ' + pairY.note);
   }
-
-  // Build a picks object for drawing
-  const fourPicks = { list: [] , notes: [] };
-
-  // X pair results
-  if(pairX.ok){
-    fourPicks.list.push({axis:'X', pos:pairX.p1, label:'X1'});
-    fourPicks.list.push({axis:'X', pos:pairX.p2, label:'X2'});
-  }else{
-    fourPicks.notes.push('Could not place symmetric pair on X: '+pairX.note);
+} else if (axis2 === 'Z' && exZ.span >= 12) {
+  const pairZ = findSymmetricPair(2, exZ, CG[2], Kz, minOffsetIn4, pulleySpreadMaxIn4);
+  if (pairZ.ok) {
+    fourPicks.list.push({ axis: 'Z', pos: pairZ.p1, label: 'Z1', color: COLORS.pS1 });
+    fourPicks.list.push({ axis: 'Z', pos: pairZ.p2, label: 'Z2', color: COLORS.pS2 });
+  } else {
+    fourPicks.notes.push('Could not place Z pair: ' + pairZ.note);
   }
-
-  if(axis2==='NONE'){
-    if(pairX._inner && pairX._outer){
-      fourPicks.list = [
-        {axis:'X', pos:pairX._inner.p1, label:'X1'},
-        {axis:'X', pos:pairX._inner.p2, label:'X2'},
-        {axis:'X', pos:pairX._outer.p1, label:'X3'},
-        {axis:'X', pos:pairX._outer.p2, label:'X4'},
-      ];
-    }else if(pairX.ok){
-      if(pairX._warn) fourPicks.notes.push('4-on-X outer pair failed: '+pairX._warn);
-    }
-  }else{
-    if(pairS4 && pairS4.ok){
-      fourPicks.list.push({axis:axis2, pos:pairS4.p1, label:axis2+'1'});
-      fourPicks.list.push({axis:axis2, pos:pairS4.p2, label:axis2+'2'});
-    }else if(singleS4){
-      fourPicks.list.push({axis:singleS4.axis, pos:singleS4.pos, label:singleS4.axis+'(CG)'});
-      fourPicks.notes.push('Collapsed to single on '+singleS4.axis+': '+(singleS4.reason||'span too small/blocked'));
-    }
+}
+// Fallback: If fewer than 4 picks, try 4-on-X
+if (fourPicks.list.length < 4) {
+  const twoX = findTwoPairsOnOneAxis(0, exX, CG[0], Kx, minOffsetIn4, pulleySpreadMaxIn4);
+  if (twoX.ok) {
+    fourPicks.list = [
+      { axis: 'X', pos: twoX.inner.p1, label: 'X1', color: COLORS.pX1 },
+      { axis: 'X', pos: twoX.inner.p2, label: 'X2', color: COLORS.pX2 },
+      { axis: 'X', pos: twoX.outer.p1, label: 'X3', color: COLORS.pS1 },
+      { axis: 'X', pos: twoX.outer.p2, label: 'X4', color: COLORS.pS2 },
+    ];
+    fourPicks.notes.push('Used 4-on-X due to ' + (axis2 === 'NONE' ? 'user choice' : 'Y/Z constraints'));
+  } else {
+    fourPicks.notes.push('4-on-X failed: ' + twoX.note);
   }
-
-  // Spread warnings
-  function checkSpreadWarn(axis, a, b){
-    if(Math.abs(b-a) > pulleySpreadMaxIn4) fourPicks.notes.push(axis+' pair exceeds 20′; add more rigging to (D)');
+}
+// Spread warnings
+function checkSpreadWarn(axis, a, b) {
+  if (Math.abs(b - a) > pulleySpreadMaxIn4) {
+    fourPicks.notes.push(axis + ' pair exceeds 20′; add more rigging');
   }
-  const getExt = ax => ax==='X'?exX:(ax==='Y'?exY:exZ);
-  function edgeDist(ax, v){ const ex = getExt(ax); return { fromMin: v-ex.min, fromMax: ex.max-v }; }
-
-  // Build quick output lines for 4-pick positions
-  const outLines = [];
-  fourPicks.list.sort((A,B)=> (A.axis===B.axis) ? (A.pos-B.pos) : (A.axis<B.axis?-1:1));
-  const seenAxes = new Map();
-  for(const pk of fourPicks.list){
-    if(!seenAxes.has(pk.axis)) seenAxes.set(pk.axis, []);
-    seenAxes.get(pk.axis).push(pk.pos);
-    const ex = getExt(pk.axis);
-    outLines.push(`${pk.axis}-Axis: Pick-${pk.label} = ${fmtInchesQ(pk.pos - ex.min)} from (${pk.axis}min) ${edgeName(pk.axis).split(' ')[1]} edge`);
-  }
-  for(const [ax, arr] of seenAxes){
-    if(arr.length>=2){ checkSpreadWarn(ax, arr[0], arr[arr.length-1]); }
-  }
-  const FOUR = { picks: fourPicks, lines: outLines };
-
+}
+const getExt = ax => ax === 'X' ? exX : (ax === 'Y' ? exY : exZ);
+const seenAxes = new Map();
+for (const pk of fourPicks.list) {
+  if (!seenAxes.has(pk.axis)) seenAxes.set(pk.axis, []);
+  seenAxes.get(pk.axis).push(pk.pos);
+}
+for (const [ax, arr] of seenAxes) {
+  if (arr.length >= 2) checkSpreadWarn(ax, arr[0], arr[arr.length - 1]);
+}
+// Build output lines
+const outLines = [];
+fourPicks.list.sort((A, B) => (A.axis === B.axis) ? (A.pos - B.pos) : (A.axis < B.axis ? -1 : 1));
+for (const pk of fourPicks.list) {
+  const ex = getExt(pk.axis);
+  outLines.push(`${pk.axis}-Axis: Pick-${pk.label} = ${fmtInchesQ(pk.pos - ex.min)} from ${edgeName(pk.axis)}`);
+}
+const FOUR = { picks: fourPicks, lines: outLines };
   // --- Single-pick (CG) distances from edges (for quick reference)
   const dX = (exX.span>0)? (CG[0]-exX.min) : 0;
   const dY = (exY.span>0)? (CG[1]-exY.min) : 0;
@@ -1123,32 +1095,16 @@ function drawProjection(rect, px, py, title, picks, plane, cgWorld){
 drawPickWorld(picks.PrightW, COLORS.pickRight, 'R');
 
   // 4-pick dots
-if(picks && picks.FOUR && picks.FOUR.picks && picks.FOUR.picks.list){
-  for(const pk of picks.FOUR.picks.list){
+if (picks && picks.FOUR && picks.FOUR.picks && picks.FOUR.picks.list) {
+  for (const pk of picks.FOUR.picks.list) {
     let pxCoord = 0, pyCoord = 0;
-    if(pk.axis==='X'){ pxCoord = pk.pos; pyCoord = 0; }
-    else if(pk.axis==='Y'){ if(plane==='XY'){ pxCoord=0; pyCoord=pk.pos; } else { continue; } }
-    else if(pk.axis==='Z'){ if(plane==='XZ'){ pxCoord=0; pyCoord=pk.pos; } else { continue; } }
-
-    const color = (pk.label==='X1')? (COLORS.pX1||COLORS.pickLeft)
-                : (pk.label==='X2')? (COLORS.pX2||COLORS.pickRight)
-                : (pk.label.endsWith('1'))? (COLORS.pS1||'#1abc9c')
-                : (COLORS.pS2||'#16a085');
-
-    drawPickDot(mapX(pxCoord), mapY(pyCoord), color, pk.label);
+    if (pk.axis === 'X') { pxCoord = pk.pos; pyCoord = 0; }
+    else if (pk.axis === 'Y' && plane === 'XY') { pxCoord = 0; pyCoord = pk.pos; }
+    else if (pk.axis === 'Z' && plane === 'XZ') { pxCoord = 0; pyCoord = pk.pos; }
+    else { continue; }
+    drawPickDot(mapX(pxCoord), mapY(pyCoord), pk.color, pk.label);
   }
 }
-
-function drawPickDot(x,y,color,label){
-  ctx.save();
-  ctx.fillStyle = color || '#111';
-  ctx.strokeStyle = color || '#111';
-  ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill();
-  ctx.font='12px system-ui'; ctx.fillStyle='#000';
-  ctx.fillText(label, x+6, y-6);
-  ctx.restore();
-}
-
   // CG bullseye
   if (cgWorld){
     const cgX = cgWorld[0];
