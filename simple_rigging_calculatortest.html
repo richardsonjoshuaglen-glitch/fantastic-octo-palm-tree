@@ -972,10 +972,42 @@ drawAll({
   targetRoll, rollDegInfo, CG,
   FOUR                            // keep your 4-pick object for dot overlays
 });
+/* Find 3D world point where pipe crosses a specific coordinate on a given axis */
+function findWorldPointAtAxisCoord(axisIndex, targetCoord){
+  // Search through all segments to find where the pipe crosses this coordinate
+  for(let i=0; i<segments.length; i++){
+    const seg = segments[i];
+    const a0 = seg.start[axisIndex];
+    const a1 = seg.end[axisIndex];
+    const min = Math.min(a0, a1);
+    const max = Math.max(a0, a1);
+    
+    // Check if targetCoord falls within this segment's range on this axis
+    if(targetCoord >= min - 1e-6 && targetCoord <= max + 1e-6){
+      // Find parametric t where this segment crosses targetCoord
+      const range = a1 - a0;
+      const t = (range === 0) ? 0 : (targetCoord - a0) / range;
+      
+      // Interpolate full 3D position
+      return [
+        seg.start[0] + (seg.end[0] - seg.start[0]) * t,
+        seg.start[1] + (seg.end[1] - seg.start[1]) * t,
+        seg.start[2] + (seg.end[2] - seg.start[2]) * t
+      ];
+    }
+  }
+  
+  // Fallback: return a point with targetCoord on the specified axis, zeros elsewhere
+  const pt = [0, 0, 0];
+  pt[axisIndex] = targetCoord;
+  return pt;
+}
+
 
 
 /* ---------- drawing ---------- */
-function drawAll(picks){
+
+  function drawAll(picks){
   ctx=setupCanvas(sheet, 1000, 1050);
   const W=1000,H=1050,pad=28, secH=Math.floor((H-pad*4)/2);
   const planRect={x:pad,y:pad,w:W-2*pad,h:secH};
@@ -1064,6 +1096,22 @@ function drawProjection(rect, px, py, title, picks, plane, cgWorld){
     ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
     ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label, x+6, y-16);
   }
+  function drawPickDot(x, y, color, label){
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, Math.PI*2);
+    ctx.fill();
+    ctx.stroke();
+    
+    // Label
+    ctx.fillStyle = '#000';
+    ctx.font = '11px system-ui';
+    ctx.fillText(label, x + 8, y - 8);
+    ctx.restore();
+  }
   function drawPick(axis, pos, color, label){
     let pxCoord=0, pyCoord=0;
     if(axis==='X'){ pxCoord=pos; pyCoord=0; }
@@ -1092,16 +1140,17 @@ function drawProjection(rect, px, py, title, picks, plane, cgWorld){
 }
 
  drawPickWorld(picks.PleftW,  COLORS.pickLeft,  'L');
-drawPickWorld(picks.PrightW, COLORS.pickRight, 'R');
-
-  // 4-pick dots
+drawPickWorld(picks.PrightW, COLORS.pickRight, '  // 4-pick dots - now using actual 3D positions along the pipe
 if (picks && picks.FOUR && picks.FOUR.picks && picks.FOUR.picks.list) {
   for (const pk of picks.FOUR.picks.list) {
-    let pxCoord = 0, pyCoord = 0;
-    if (pk.axis === 'X') { pxCoord = pk.pos; pyCoord = 0; }
-    else if (pk.axis === 'Y' && plane === 'XY') { pxCoord = 0; pyCoord = pk.pos; }
-    else if (pk.axis === 'Z' && plane === 'XZ') { pxCoord = 0; pyCoord = pk.pos; }
-    else { continue; }
+    // Convert axis position to 3D world coordinate
+    const axisIdx = (pk.axis === 'X') ? 0 : (pk.axis === 'Y') ? 1 : 2;
+    const worldPt = findWorldPointAtAxisCoord(axisIdx, pk.pos);
+    
+    // Project to current view plane
+    const pxCoord = worldPt[0];
+    const pyCoord = (plane === 'XY') ? worldPt[1] : worldPt[2];
+    
     drawPickDot(mapX(pxCoord), mapY(pyCoord), pk.color, pk.label);
   }
 }
