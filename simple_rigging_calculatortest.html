@@ -769,233 +769,227 @@ function placeSinglePick(axisIndex, target, ext, windows){
   return {pos:Math.max(ext.min, Math.min(ext.max, target)), note:'Could not fully clear all couplings'};
 }
 
- 1 function computeAndDraw(){
- 2   if(items.length===0){ alert('Add at least one item.'); return; }
- 3 
- 4   // --- CG in world (for totals + roll info)
- 5   const {CG,totalW}=computeCG();
- 6 
- 7   // --- Station (chainage) model for 2-pick placement (real-world along-the-run)
- 8   const station = buildStationModel();
- 9   const edgeClear = 6;                // keep off ends
-10   const jointClear = 2;               // joints ±2"
-11   const pulleySpreadMaxIn = 240;      // 20 ft per pair
-12   const minOffsetIn = Math.max(0, Number(el('minPairOffset').value)||12);
-13 
-14   const Kstation = buildKeepoutsS(station, edgeClear, jointClear);
-15   const { sCG } = computeCGStation(station);
-16   const pairS = findSymmetricPairS(station, sCG, minOffsetIn, pulleySpreadMaxIn, Kstation);
-17 
-18   // World positions for 2-pick (these are points on the actual 3D run)
-19   let PleftW = null, PrightW = null, pairNote = null;
-20   if(pairS.ok){
-21     PleftW  = station.worldPointAtS(pairS.s1);
-22     PrightW = station.worldPointAtS(pairS.s2);
-23     pairNote = pairS.note;
-24   }else{
-25     // fallback: both at CG station (rare; still drawn)
-26     PleftW = PrightW = station.worldPointAtS(sCG);
-27     pairNote = pairS.note;
-28   }
-29 
-30   // --- Extents along axes (for reporting and 4-pick solver)
-31   const exX = extentAlong(0);
-32   const exY = extentAlong(1);
-33   const exZ = extentAlong(2);
-34 
-35   // ---------- FOUR-PICK SOLVER ----------
-36   const edgeClear4 = edgeClear;
-37   const jointClear4 = jointClear;
-38   const pulleySpreadMaxIn4 = pulleySpreadMaxIn;
-39   const minOffsetIn4 = minOffsetIn;
-40 
-41   // keep-outs per axis
-42   const Kx = buildKeepouts(0, edgeClear4, jointClear4);
-43   const Ky = buildKeepouts(1, edgeClear4, jointClear4);
-44   const Kz = buildKeepouts(2, edgeClear4, jointClear4);
-45 
-46   // second axis decision
-47   const axis2Choice = (el('axisSecond')?.value)||'AUTO';
-48   const axis2 = decideSecondAxis(axis2Choice, exY.span, exZ.span); // 'Y' | 'Z' | 'NONE'
-49 
-50   // X pair (always attempts)
-51   const pairX = findSymmetricPair(0, exX, CG[0], Kx, minOffsetIn4, pulleySpreadMaxIn4);
-52 
-53   // Second axis pair or single (renamed to avoid collision with station pairS)
-54   let pairS4 = null, singleS4 = null, Saxis = axis2; // Saxis: 'Y','Z','NONE'
-55   if(Saxis==='Y'){
-56     if(exY.span < 12){
-57       singleS4 = {pos: CG[1], axis:'Y', collapsed:true, reason:'Y span < 12"'};
-58     }else{
-59       pairS4 = findSymmetricPair(1, exY, CG[1], Ky, minOffsetIn4, pulleySpreadMaxIn4);
-60       if(!pairS4.ok){
-61         singleS4 = {pos: CG[1], axis:'Y', collapsed:true, reason:pairS4.note};
-62         pairS4 = null;
-63       }
-64     }
-65   }else if(Saxis==='Z'){
-66     if(exZ.span < 12){
-67       singleS4 = {pos: CG[2], axis:'Z', collapsed:true, reason:'Z span < 12"'};
-68     }else{
-69       pairS4 = findSymmetricPair(2, exZ, CG[2], Kz, minOffsetIn4, pulleySpreadMaxIn4);
-70       if(!pairS4.ok){
-71         singleS4 = {pos: CG[2], axis:'Z', collapsed:true, reason:pairS4.note};
-72         pairS4 = null;
-73       }
-74     }
-75   }else{
-76     // NONE => 4-on-X (two pairs on X)
-77     const twoX = findTwoPairsOnOneAxis(0, exX, CG[0], Kx, minOffsetIn4, pulleySpreadMaxIn4);
-78     if(twoX.ok){
-79       pairX._inner = twoX.inner;
-80       pairX._outer = twoX.outer;
-81     }else{
-82       pairX._warn = twoX.note;
-83     }
-84   }
-85 
-86   // Build a picks object for drawing
-87   const fourPicks = { list: [] , notes: [] };
-88 
-89   // X pair results
-90   if(pairX.ok){
-91     fourPicks.list.push({axis:'X', pos:pairX.p1, label:'X1'});
-92     fourPicks.list.push({axis:'X', pos:pairX.p2, label:'X2'});
-93   }else{
-94     fourPicks.notes.push('Could not place symmetric pair on X: '+pairX.note);
-95   }
-96 
-97   if(axis2==='NONE'){
-98     if(pairX._inner && pairX._outer){
-99       fourPicks.list = [
-100         {axis:'X', pos:pairX._inner.p1, label:'X1'},
-101         {axis:'X', pos:pairX._inner.p2, label:'X2'},
-102         {axis:'X', pos:pairX._outer.p1, label:'X3'},
-103         {axis:'X', pos:pairX._outer.p2, label:'X4'},
-104       ];
-105     }else if(pairX.ok){
-106       if(pairX._warn) fourPicks.notes.push('4-on-X outer pair failed: '+pairX._warn);
-107     }
-108   }else{
-109     if(pairS4 && pairS4.ok){
-110       fourPicks.list.push({axis:axis2, pos:pairS4.p1, label:axis2+'1'});
-111       fourPicks.list.push({axis:axis2, pos:pairS4.p2, label:axis2+'2'});
-112     }else if(singleS4){
-113       fourPicks.list.push({axis:singleS4.axis, pos:singleS4.pos, label:singleS4.axis+'(CG)'});
-114       fourPicks.notes.push('Collapsed to single on '+singleS4.axis+': '+(singleS4.reason||'span too small/blocked'));
-115     }
-116   }
-117 
-118   // Spread warnings + quick 4-pick readout
-119   function checkSpreadWarn(axis, a, b){
-120     if(Math.abs(b-a) > pulleySpreadMaxIn4) fourPicks.notes.push(axis+' pair exceeds 20′; add more rigging to (D)');
-121   }
-122   const getExt = ax => ax==='X'?exX:(ax==='Y'?exY:exZ);
-123   function edgeDist(ax, v){ const ex = getExt(ax); return { fromMin: v-ex.min, fromMax: ex.max-v }; }
-124 
-125   const outLines = [];
-126   fourPicks.list.sort((A,B)=> (A.axis===B.axis) ? (A.pos-B.pos) : (A.axis<B.axis?-1:1));
-127   const seenAxes = new Map();
-128   for(const pk of fourPicks.list){
-129     if(!seenAxes.has(pk.axis)) seenAxes.set(pk.axis, []);
-130     seenAxes.get(pk.axis).push(pk.pos);
-131     const ex = getExt(pk.axis);
-132     outLines.push(`${pk.axis}-Axis: Pick-${pk.label} = ${fmtInchesQ(pk.pos - ex.min)} from (${pk.axis}min) ${edgeName(pk.axis).split(' ')[1]} edge`);
-133   }
-134   for(const [ax, arr] of seenAxes){
-135     if(arr.length>=2){ checkSpreadWarn(ax, arr[0], arr[arr.length-1]); }
-136   }
-137   const FOUR = { picks: fourPicks, lines: outLines };
-138 
-139   // --- Single-pick (CG) distances from edges (for quick reference)
-140   const dX = (exX.span>0)? (CG[0]-exX.min) : 0;
-141   const dY = (exY.span>0)? (CG[1]-exY.min) : 0;
-142   const dZ = (exZ.span>0)? (CG[2]-exZ.min) : 0;
-143 
-144   // --- 2-pick reporting using selected axes, but positions come from world points
-145   const axisL = chooseAxis(el('axisL').value);
-146   const axisR = chooseAxis(el('axisR').value);
-147   const axL = (axisL==='X'?0:(axisL==='Y'?1:2));
-148   const axR = (axisR==='X'?0:(axisR==='Y'?1:2));
-149   const exL = (axisL==='X'?exX:(axisL==='Y'?exY:exZ));
-150   const exR = (axisR==='X'?exX:(axisR==='Y'?exY:exZ));
-151   const posL_axis = Math.max(exL.min, Math.min(exL.max, PleftW[axL]));
-152   const posR_axis = Math.max(exR.min, Math.min(exR.max, PrightW[axR]));
-153 
-154   // --- Roll info
-155   const R=(Number(el('pipeOD').value)||24)/2;
-156   const y=CG[1], yclamped=Math.max(-R, Math.min(R, y));
-157   const rollDegInfo = (R>0)? (Math.asin(yclamped/R)*180/Math.PI) : 0;
-158   const rollSideInfo = (y>0?'toward +Y':(y<0?'toward -Y':'no roll needed'));
-159   const arc = R * (Math.abs(rollDegInfo)*Math.PI/180);
-160 
-161   let targetRoll = parseFloat(el('targetRoll').value);
-162   if(!(targetRoll===0 || !!targetRoll)) targetRoll = 0;
-163 
-164   // --- Output HTML
-165   let html='';
-166   html += '<h3>Totals</h3>';
-167   html += '<div>Total weight: <b>'+totalW.toFixed(1)+' lb</b></div>';
-168   html += '<div>CG (in): X=<b>'+CG[0].toFixed(2)+'</b>, Y=<b>'+CG[1].toFixed(2)+'</b>, Z=<b>'+CG[2].toFixed(2)+'</b></div>';
-169 
-170   html += '<h3>Single pick (center of gravity)</h3>';
-171   const parts=[];
-172   if(exX.span>0) parts.push(fmtInchesQ(dX)+' from the '+edgeName('X'));
-173   if(exY.span>0) parts.push(fmtInchesQ(dY)+' from the '+edgeName('Y'));
-174   if(exZ.span>0) parts.push(fmtInchesQ(dZ)+' from the '+edgeName('Z'));
-175   if(parts.length){ html += '<div><b>'+parts.join(' and ')+'</b>.</div>'; }
-176 
-177   // Pick points (station/world aware)
-178   html += '<h3>Pick Points</h3>';
-179   html += '<div><span class="pill left">Left pick</span> axis <b>'+axisL+'</b>: '
-180         + fmtFtIn(posL_axis - exL.min) + ' from Left Edge';
-181   html += ' &nbsp; <span class="muted">(Z at pick: '+PleftW[2].toFixed(2)+'")</span></div>';
-182 
-183   html += '<div><span class="pill right">Right pick</span> axis <b>'+axisR+'</b>: '
-184         + fmtFtIn(posR_axis - exR.min) + ' from Left Edge';
-185   html += ' &nbsp; <span class="muted">(Z at pick: '+PrightW[2].toFixed(2)+'")</span></div>';
-186 
-187   if(pairNote){ html += '<div class="muted">Pair note: '+pairNote+'</div>'; }
-188 
-189   // >>> Station readouts (chainage along run) <<<
-190   const sLeft  = pairS.ok ? pairS.s1 : sCG;
-191   const sRight = pairS.ok ? pairS.s2 : sCG;
-192   html += '<div class="muted">Station (along run): '
-193        + 'Left pick S='+fmtFtIn(sLeft)+'; '
-194        + 'Right pick S='+fmtFtIn(sRight)
-195        + '.</div>';
-196 
-197   // Roll
-198   html += '<h3>Roll</h3>';
-199   html += '<div><span class="pill roll">CG roll (info)</span> ≈ '+rollDegInfo.toFixed(1)+'° '+rollSideInfo+'; circumference offset per choker ≈ '+(r8(arc)).toFixed(3).replace(/\\.000$/,'')+'"</div>';
-200   html += '<div style="margin-top:8px;"><span class="bigcall">SET PIPE ROLL: '+(targetRoll>=0?'+':'')+targetRoll.toFixed(1)+'° (toward '+(targetRoll>=0?'+Y':'−Y')+')</span></div>';
-201   html += '<div class="muted">This is the roll you give to the operator on the pipe. Use the preset above to “plumb the 45° face” (sets +45°).</div>';
-202 
-203   // 4-pick output
-204   html += '<h3>4-Pick Positions</h3>';
-205   if(FOUR.lines.length){
-206     html += '<div>'+FOUR.lines.map(s=>('<div>'+s+'</div>')).join('')+'</div>';
-207   }else{
-208     html += '<div class="muted">Could not determine 4 picks under current constraints.</div>';
-209   }
-210   if(FOUR.picks.notes.length){
-211     html += '<div class="muted">'+FOUR.picks.notes.join(' · ')+'</div>';
-212   }
-213 
-214   el('summary').innerHTML = html;
-215 
-216   // Draw
-217   drawAll({
-218     axisL, axisR,
-219     posL: posL_axis, posR: posR_axis,   // used only for labels/edge-readouts
-220     PleftW, PrightW,                    // true 3D world pick points
-221     targetRoll, rollDegInfo, CG,
-222     FOUR
-223   });
-224 
-225   el('downloadBtn').disabled=false;
-226 }
-  
+ function computeAndDraw(){
+  if(items.length===0){ alert('Add at least one item.'); return; }
+
+  // --- CG in world (for totals + roll info)
+  const {CG,totalW}=computeCG();
+
+  // --- Station (chainage) model for 2-pick placement (real-world along-the-run)
+  const station = buildStationModel();
+  const edgeClear = 6;                // keep off ends
+  const jointClear = 2;               // joints ±2"
+  const pulleySpreadMaxIn = 240;      // 20 ft per pair
+  const minOffsetIn = Math.max(0, Number(el('minPairOffset').value)||12);
+
+  const Kstation = buildKeepoutsS(station, edgeClear, jointClear);
+  const { sCG } = computeCGStation(station);
+  const pairS = findSymmetricPairS(station, sCG, minOffsetIn, pulleySpreadMaxIn, Kstation);
+
+  // World positions for 2-pick (these are points on the actual 3D run)
+  let PleftW = null, PrightW = null, pairNote = null;
+  if(pairS.ok){
+    PleftW  = station.worldPointAtS(pairS.s1);
+    PrightW = station.worldPointAtS(pairS.s2);
+    pairNote = pairS.note;
+  }else{
+    // fallback: both at CG station (rare; still drawn)
+    PleftW = PrightW = station.worldPointAtS(sCG);
+    pairNote = pairS.note;
+  }
+
+  // --- Extents along axes (for reporting and 4-pick solver)
+  const exX = extentAlong(0);
+  const exY = extentAlong(1);
+  const exZ = extentAlong(2);
+
+  // ---------- FOUR-PICK SOLVER ----------
+  // Reuse earlier constants without redeclaring them
+  const edgeClear4 = edgeClear;
+  const jointClear4 = jointClear;
+  const pulleySpreadMaxIn4 = pulleySpreadMaxIn;
+  const minOffsetIn4 = minOffsetIn;
+
+  // keep-outs per axis
+  const Kx = buildKeepouts(0, edgeClear4, jointClear4);
+  const Ky = buildKeepouts(1, edgeClear4, jointClear4);
+  const Kz = buildKeepouts(2, edgeClear4, jointClear4);
+
+  // second axis decision
+  const axis2Choice = (el('axisSecond')?.value)||'AUTO';
+  const axis2 = decideSecondAxis(axis2Choice, exY.span, exZ.span); // 'Y' | 'Z' | 'NONE'
+
+  // X pair (always attempts)
+  const pairX = findSymmetricPair(0, exX, CG[0], Kx, minOffsetIn4, pulleySpreadMaxIn4);
+
+  // Second axis pair or single (renamed to avoid collision with station pairS)
+  let pairS4 = null, singleS4 = null, Saxis = axis2; // Saxis: 'Y','Z','NONE'
+  if(Saxis==='Y'){
+    if(exY.span < 12){
+      singleS4 = {pos: CG[1], axis:'Y', collapsed:true, reason:'Y span < 12"'};
+    }else{
+      pairS4 = findSymmetricPair(1, exY, CG[1], Ky, minOffsetIn4, pulleySpreadMaxIn4);
+      if(!pairS4.ok){
+        singleS4 = {pos: CG[1], axis:'Y', collapsed:true, reason:pairS4.note};
+        pairS4 = null;
+      }
+    }
+  }else if(Saxis==='Z'){
+    if(exZ.span < 12){
+      singleS4 = {pos: CG[2], axis:'Z', collapsed:true, reason:'Z span < 12"'};
+    }else{
+      pairS4 = findSymmetricPair(2, exZ, CG[2], Kz, minOffsetIn4, pulleySpreadMaxIn4);
+      if(!pairS4.ok){
+        singleS4 = {pos: CG[2], axis:'Z', collapsed:true, reason:pairS4.note};
+        pairS4 = null;
+      }
+    }
+  }else{
+    // NONE => 4-on-X (two pairs on X)
+    const twoX = findTwoPairsOnOneAxis(0, exX, CG[0], Kx, minOffsetIn4, pulleySpreadMaxIn4);
+    if(twoX.ok){
+      pairX._inner = twoX.inner;
+      pairX._outer = twoX.outer;
+    }else{
+      pairX._warn = twoX.note;
+    }
+  }
+
+  // Build a picks object for drawing
+  const fourPicks = { list: [] , notes: [] };
+
+  // X pair results
+  if(pairX.ok){
+    fourPicks.list.push({axis:'X', pos:pairX.p1, label:'X1'});
+    fourPicks.list.push({axis:'X', pos:pairX.p2, label:'X2'});
+  }else{
+    fourPicks.notes.push('Could not place symmetric pair on X: '+pairX.note);
+  }
+
+  if(axis2==='NONE'){
+    if(pairX._inner && pairX._outer){
+      fourPicks.list = [
+        {axis:'X', pos:pairX._inner.p1, label:'X1'},
+        {axis:'X', pos:pairX._inner.p2, label:'X2'},
+        {axis:'X', pos:pairX._outer.p1, label:'X3'},
+        {axis:'X', pos:pairX._outer.p2, label:'X4'},
+      ];
+    }else if(pairX.ok){
+      if(pairX._warn) fourPicks.notes.push('4-on-X outer pair failed: '+pairX._warn);
+    }
+  }else{
+    if(pairS4 && pairS4.ok){
+      fourPicks.list.push({axis:axis2, pos:pairS4.p1, label:axis2+'1'});
+      fourPicks.list.push({axis:axis2, pos:pairS4.p2, label:axis2+'2'});
+    }else if(singleS4){
+      fourPicks.list.push({axis:singleS4.axis, pos:singleS4.pos, label:singleS4.axis+'(CG)'});
+      fourPicks.notes.push('Collapsed to single on '+singleS4.axis+': '+(singleS4.reason||'span too small/blocked'));
+    }
+  }
+
+  // Spread warnings
+  function checkSpreadWarn(axis, a, b){
+    if(Math.abs(b-a) > pulleySpreadMaxIn4) fourPicks.notes.push(axis+' pair exceeds 20′; add more rigging to (D)');
+  }
+  const getExt = ax => ax==='X'?exX:(ax==='Y'?exY:exZ);
+  function edgeDist(ax, v){ const ex = getExt(ax); return { fromMin: v-ex.min, fromMax: ex.max-v }; }
+
+  // Build quick output lines for 4-pick positions
+  const outLines = [];
+  fourPicks.list.sort((A,B)=> (A.axis===B.axis) ? (A.pos-B.pos) : (A.axis<B.axis?-1:1));
+  const seenAxes = new Map();
+  for(const pk of fourPicks.list){
+    if(!seenAxes.has(pk.axis)) seenAxes.set(pk.axis, []);
+    seenAxes.get(pk.axis).push(pk.pos);
+    const ex = getExt(pk.axis);
+    outLines.push(`${pk.axis}-Axis: Pick-${pk.label} = ${fmtInchesQ(pk.pos - ex.min)} from (${pk.axis}min) ${edgeName(pk.axis).split(' ')[1]} edge`);
+  }
+  for(const [ax, arr] of seenAxes){
+    if(arr.length>=2){ checkSpreadWarn(ax, arr[0], arr[arr.length-1]); }
+  }
+  const FOUR = { picks: fourPicks, lines: outLines };
+
+  // --- Single-pick (CG) distances from edges (for quick reference)
+  const dX = (exX.span>0)? (CG[0]-exX.min) : 0;
+  const dY = (exY.span>0)? (CG[1]-exY.min) : 0;
+  const dZ = (exZ.span>0)? (CG[2]-exZ.min) : 0;
+
+  // --- 2-pick reporting using selected axes, but positions come from world points
+  const axisL = chooseAxis(el('axisL').value);
+  const axisR = chooseAxis(el('axisR').value);
+  const axL = (axisL==='X'?0:(axisL==='Y'?1:2));
+  const axR = (axisR==='X'?0:(axisR==='Y'?1:2));
+  const exL = (axisL==='X'?exX:(axisL==='Y'?exY:exZ));
+  const exR = (axisR==='X'?exX:(axisR==='Y'?exY:exZ));
+  const posL_axis = Math.max(exL.min, Math.min(exL.max, PleftW[axL]));
+  const posR_axis = Math.max(exR.min, Math.min(exR.max, PrightW[axR]));
+
+  // --- Roll info
+  const R=(Number(el('pipeOD').value)||24)/2;
+  const y=CG[1], yclamped=Math.max(-R, Math.min(R, y));
+  const rollDegInfo = (R>0)? (Math.asin(yclamped/R)*180/Math.PI) : 0;
+  const rollSideInfo = (y>0?'toward +Y':(y<0?'toward -Y':'no roll needed'));
+  const arc = R * (Math.abs(rollDegInfo)*Math.PI/180);
+
+  let targetRoll = parseFloat(el('targetRoll').value);
+  if(!(targetRoll===0 || !!targetRoll)) targetRoll = 0;
+
+  // --- Output HTML
+  let html='';
+  html += '<h3>Totals</h3>';
+  html += '<div>Total weight: <b>'+totalW.toFixed(1)+' lb</b></div>';
+  html += '<div>CG (in): X=<b>'+CG[0].toFixed(2)+'</b>, Y=<b>'+CG[1].toFixed(2)+'</b>, Z=<b>'+CG[2].toFixed(2)+'</b></div>';
+
+  html += '<h3>Single pick (center of gravity)</h3>';
+  const parts=[];
+  if(exX.span>0) parts.push(fmtInchesQ(dX)+' from the '+edgeName('X'));
+  if(exY.span>0) parts.push(fmtInchesQ(dY)+' from the '+edgeName('Y'));
+  if(exZ.span>0) parts.push(fmtInchesQ(dZ)+' from the '+edgeName('Z'));
+  if(parts.length){ html += '<div><b>'+parts.join(' and ')+'</b>.</div>'; }
+
+  // Pick points (station/world aware)
+  html += '<h3>Pick Points</h3>';
+  html += '<div><span class="pill left">Left pick</span> axis <b>'+axisL+'</b>: '
+        + fmtFtIn(posL_axis - exL.min) + ' from Left Edge';
+  html += ' &nbsp; <span class="muted">(Z at pick: '+PleftW[2].toFixed(2)+'")</span></div>';
+
+  html += '<div><span class="pill right">Right pick</span> axis <b>'+axisR+'</b>: '
+        + fmtFtIn(posR_axis - exR.min) + ' from Left Edge';
+  html += ' &nbsp; <span class="muted">(Z at pick: '+PrightW[2].toFixed(2)+'")</span></div>';
+
+  if(pairNote){ html += '<div class="muted">Pair note: '+pairNote+'</div>'; }
+
+  // Roll
+  html += '<h3>Roll</h3>';
+  html += '<div><span class="pill roll">CG roll (info)</span> ≈ '+rollDegInfo.toFixed(1)+'° '+rollSideInfo+'; circumference offset per choker ≈ '+(r8(arc)).toFixed(3).replace(/\\.000$/,'')+'"</div>';
+  html += '<div style="margin-top:8px;"><span class="bigcall">SET PIPE ROLL: '+(targetRoll>=0?'+':'')+targetRoll.toFixed(1)+'° (toward '+(targetRoll>=0?'+Y':'−Y')+')</span></div>';
+  html += '<div class="muted">This is the roll you give to the operator on the pipe. Use the preset above to “plumb the 45° face” (sets +45°).</div>';
+
+  // 4-pick output
+  html += '<h3>4-Pick Positions</h3>';
+  if(FOUR.lines.length){
+    html += '<div>'+FOUR.lines.map(s=>('<div>'+s+'</div>')).join('')+'</div>';
+  }else{
+    html += '<div class="muted">Could not determine 4 picks under current constraints.</div>';
+  }
+  if(FOUR.picks.notes.length){
+    html += '<div class="muted">'+FOUR.picks.notes.join(' · ')+'</div>';
+  }
+
+  el('summary').innerHTML = html;
+
+  // Draw
+  drawAll({
+    axisL, axisR,
+    posL: posL_axis, posR: posR_axis,   // used only for labels/edge-readouts
+    PleftW, PrightW,                    // true 3D world pick points
+    targetRoll, rollDegInfo, CG,
+    FOUR
+  });
+
+  el('downloadBtn').disabled=false;
+}
+ 
   el('summary').innerHTML = html;
 
 drawAll({
