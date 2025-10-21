@@ -1116,27 +1116,6 @@ if (picks && picks.FOUR && picks.FOUR.picks && picks.FOUR.picks.list) {
   ctx.strokeStyle='#cfd4d9'; ctx.lineWidth=1; ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
 }
 
-/* ---------- big roll dial ---------- */
-function drawRollDial(cx, cy, r, targetDeg){
-  ctx.strokeStyle = COLORS.roll; ctx.lineWidth=3;
-  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke();
-
-  ctx.strokeStyle='#999'; ctx.lineWidth=2;
-  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy-r); ctx.stroke();
-
-  const a0 = -Math.PI/2; // up is 0°
-  const a1 = a0 + (targetDeg * Math.PI/180);
-  ctx.fillStyle='rgba(91,192,255,0.25)';
-  ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,a0,a1, targetDeg<0); ctx.closePath(); ctx.fill();
-
-  ctx.strokeStyle=COLORS.roll; ctx.lineWidth=3;
-  ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx + r*Math.cos(a1), cy + r*Math.sin(a1)); ctx.stroke();
-
-  ctx.fillStyle='#000'; ctx.font='14px system-ui'; ctx.fillText('Set Pipe Roll', cx-42, cy-r-22);
-  ctx.font='18px system-ui'; ctx.fillText((targetDeg>=0?'+':'')+targetDeg.toFixed(1)+'°', cx-24, cy+8);
-  ctx.font='12px system-ui'; ctx.fillText('(+Y)', cx-8, cy-r-12);
-  ctx.fillText('(−Y)', cx-12, cy+r+2);
-}
 </script>
 </body>
 </html>
