@@ -471,7 +471,7 @@ function computeCG(){
 }
 
 /* ---------- axis utilities ---------- */
-function extentAlong(axisIndex, radius){
+function extentAlong(axisIndex, radius = 0){
   const vals = [];
   for (let i=0;i<segments.length;i++){
     vals.push(segments[i].start[axisIndex], segments[i].end[axisIndex]);
@@ -537,8 +537,7 @@ function computeAndDraw(){
 
   const {CG,totalW}=computeCG();
 
-  // pipe radius (for edge distances & plotting envelope)
-const R = (Number(el('pipeOD').value) || 24) / 2;
+
 
 // radius-aware extents for all three axes (outer surface)
 const exX = extentAlong(0, R);
@@ -607,7 +606,7 @@ const dZ = (exZ.span>0)? (CG[2] - exZ.min) : 0;
   el('summary').innerHTML = html;
 
   drawAll({axisL, axisR, posL:placedL.pos, posR:placedR.pos, targetRoll, rollDegInfo, CG, R});
-
+    }
   /* ---------- drawing ---------- */
 function drawAll(picks){
   ctx=setupCanvas(sheet, 1000, 1050);
