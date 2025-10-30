@@ -6,13 +6,9 @@
 <title>Simple COG Rigging Calculator</title>
 <style>
   :root{
-  --bg:#ffffff; --ink:#111; --panel:#f6f8fa; --border:#e9ecef; --accent:#0d6efd;
-  --pickL:#ffd60a; --pickR:#32cd32; --roll:#5bc0ff;
-  /* optional distinct colors for the 4-pick dots */
-  --pX1:#ff6b6b; --pX2:#d63384; --pS1:#1abc9c; --pS2:#16a085;
-}
-
-  
+    --bg:#ffffff; --ink:#111; --panel:#f6f8fa; --border:#e9ecef; --accent:#0d6efd;
+    --pickL:#ffd60a; --pickR:#32cd32; --roll:#5bc0ff;
+  }
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:16px; color:var(--ink); background:var(--bg); }
   h1 { font-size:20px; margin:0 0 10px; display:flex; align-items:center; gap:10px;}
   .badge{display:inline-block; padding:2px 8px; border-radius:999px; background:#d1e7dd; color:#0f5132; font-weight:700; font-size:12px;}
@@ -37,7 +33,7 @@
 </style>
 </head>
 <body>
-<h1>Rigging CG Helper — 2–4 Pick <span class="badge" id="badge">Ready</span></h1>
+<h1>Rigging CG Helper — Simple 2-Pick <span class="badge" id="badge">Ready</span></h1>
 
 <!-- OUTPUT FIRST -->
 <fieldset>
@@ -67,22 +63,6 @@
       </select>
     </label>
   </div>
-
-  <div class="row">
-  <label>Second axis for extra pair
-    <select id="axisSecond">
-      <option value="AUTO" selected>Auto (Y if span ≥ 12″, else Z if span ≥ 12″, else NONE)</option>
-      <option value="Y">Force Y</option>
-      <option value="Z">Force Z</option>
-      <option value="NONE">None (4 on X)</option>
-    </select>
-  </label>
-  <label>Minimum pair offset from CG (in)
-    <input id="minPairOffset" type="number" inputmode="decimal" value="12">
-  </label>
-</div>
-<div class="muted">4-pick mode: always two picks on X; second pair goes to the selected axis. If the chosen axis span &lt; 12″, we collapse to a single pick on that axis (3-pick total). If you select NONE, all 4 picks are on X (for long straight runs).</div>
-
   <div class="row">
     <label>Nominal pick spacing (in, fluid – CG & axes take precedence)
       <input id="pickSpacing" type="number" inputmode="decimal" value="72">
@@ -210,19 +190,14 @@ const W_EL90=475.0, S_EL90=36.0;
 const W_EL45=240.0, S_EL45=15.0;
 const W_COUP=115.0;
 const W_VALVE_BODY=451.0, L_VALVE_STD=12.0;
-const W_TEE_BODY=477.0, L_TEE=20.0;
+const W_TEE_BODY=477.0, L_TEE=36.0;
 
 const COLORS={
   axisX:'#d12222', axisY:'#2a9d2a', axisZ:'#1f6feb',
   P:'#666666', E:'#2aa198', F:'#2aa198', V:'#ff9100', C:'#8e44ad', T:'#d33682', W:'#d33682', X:'#8d6e63', Y:'#8d6e63',
   pickLeft:getComputedStyle(document.documentElement).getPropertyValue('--pickL')||'#ffd60a',
   pickRight:getComputedStyle(document.documentElement).getPropertyValue('--pickR')||'#32cd32',
-  pipeBand:'rgba(100,100,100,0.18)', centerline:'#000', roll:'#5bc0ff',
-  pX1: getComputedStyle(document.documentElement).getPropertyValue('--pX1') || '#ff6b6b',
-pX2: getComputedStyle(document.documentElement).getPropertyValue('--pX2') || '#d63384',
-pS1: getComputedStyle(document.documentElement).getPropertyValue('--pS1') || '#1abc9c',
-pS2: getComputedStyle(document.documentElement).getPropertyValue('--pS2') || '#16a085',
-
+  pipeBand:'rgba(100,100,100,0.18)', centerline:'#000', roll:'#5bc0ff'
 };
 const ORIENTS={ A:[ 1,0,0], B:[-1,0,0], C:[ 0,1,0], D:[ 0,-1,0], E:[ 0,0,1], F:[ 0,0,-1] };
 
@@ -288,225 +263,6 @@ function sameOrtho(a,b){
   // true if a and b are orthogonal and non-zero
   return (a[0]*b[0]+a[1]*b[1]+a[2]*b[2])===0 && (a.some(v=>v!==0)) && (b.some(v=>v!==0));
 }
-  /* ---------- station model (S along the polyline) ---------- */
-// Build cumulative stationing along the sequential segments the user built.
-function buildStationModel(){
-  const Ssegs = []; // {s0, s1, len, dir:[x,y,z], start:[...], end:[...]}
-  let acc = 0;
-  for(const seg of segments){
-    const dx = seg.end[0]-seg.start[0], dy = seg.end[1]-seg.start[1], dz = seg.end[2]-seg.start[2];
-    const len = Math.hypot(dx, dy, dz);
-    const dir = len ? [dx/len, dy/len, dz/len] : [0,0,0];
-    Ssegs.push({ s0: acc, s1: acc+len, len, dir, start: seg.start, end: seg.end, tCode: seg.tCode });
-    acc += len;
-  }
-  const total = acc;
-
-  function worldPointAtS(s){ // clamp to path
-    if(!Ssegs.length) return [0,0,0];
-    if(s<=0) return Ssegs[0].start.slice();
-    if(s>=total) return Ssegs[Ssegs.length-1].end.slice();
-    for(const sg of Ssegs){
-      if(s>=sg.s0-1e-9 && s<=sg.s1+1e-9){
-        const t = sg.len ? (s - sg.s0)/sg.len : 0;
-        return [
-          sg.start[0] + (sg.end[0]-sg.start[0])*t,
-          sg.start[1] + (sg.end[1]-sg.start[1])*t,
-          sg.start[2] + (sg.end[2]-sg.start[2])*t
-        ];
-      }
-    }
-    return Ssegs[Ssegs.length-1].end.slice();
-  }
-
-  function sOfSegParam(segIdx, t){ // t in [0,1]
-    const sg = Ssegs[segIdx]; if(!sg) return 0;
-    return sg.s0 + (Math.max(0, Math.min(1, t)) * sg.len);
-  }
-
-  return { Ssegs, total, worldPointAtS, sOfSegParam };
-}
-/* Station-based keep-outs (in S units, inches since segments are inches) */
-function buildKeepoutsS(model, edgeClearIn, jointClearIn){
-  const K = [];
-  // edges
-  K.push([0, edgeClearIn]);
-  K.push([Math.max(0, model.total - edgeClearIn), model.total]);
-
-  // forbidden entire segments: C,V,T,W (pad each end by jointClearIn)
-  for(const [i, sg] of model.Ssegs.entries()){
-    if(['C','V','T','W'].includes(sg.tCode)){
-      K.push([Math.max(0, sg.s0 - jointClearIn), Math.min(model.total, sg.s1 + jointClearIn)]);
-    }
-  }
-
-  // joints: every internal junction ±jointClearIn
-  for(const sg of model.Ssegs){
-    if(sg.s0>0) K.push([sg.s0 - jointClearIn, sg.s0 + jointClearIn]);
-  }
-  // final joint (end)
-  if(model.total>0) K.push([model.total - jointClearIn, model.total + jointClearIn]);
-
-  return mergeWindows(K);
-}
-
-/* Weighted CG on station using where the weights live along the run */
-function computeCGStation(model){
-  let TW = 0, SW = 0;
-
-  // lumps are placed at segment mids — we know segIdx so S is simple:
-  for(const L of lumps){
-    const s = model.sOfSegParam(L.segIdx ?? 0, 0.5);
-    TW += L.w; SW += L.w * s;
-  }
-  // auto couplings at joints (between every pair of segments)
-  for(let j=0; j<segments.length-1; j++){
-    const sJoint = model.Ssegs[j].s1; // end of segment j
-    TW += W_COUP; SW += W_COUP * sJoint;
-  }
-  // explicit couplings already counted via lumps/segments as weight-only segments (if any)
-
-  const sCG = TW ? (SW/TW) : 0; // inches of chainage from start
-  return { sCG, TW };
-}
-
-/* Find symmetric pair about sCG on station with keep-outs and spread limit */
-function findSymmetricPairS(model, sCG, minOffsetIn, maxSpreadIn, keepoutsS){
-  const step = 0.5; // 1/2" station step
-  const maxOff = model.total/2;
-  const allowedS = (s)=>{ for(const w of keepoutsS){ if(s>=w[0] && s<=w[1]) return false; } return true; };
-
-  for(let off=Math.max(0, minOffsetIn); off<=maxOff+1e-6; off+=step){
-    let a = sCG - off, b = sCG + off;
-    a = Math.max(0, Math.min(model.total, a));
-    b = Math.max(0, Math.min(model.total, b));
-    if(b - a > maxSpreadIn) continue;
-
-    // nudge outwards symmetrically if either side lands in a keep-out
-    if(allowedS(a) && allowedS(b)) return {ok:true, s1:a, s2:b, note:null};
-
-    let aa=a, bb=b;
-    for(let k=1; k*step <= model.total+120; k++){
-      const a2 = aa - step, b2 = bb + step;
-      if(a2 < 0 || b2 > model.total) break;
-      if(b2 - a2 > maxSpreadIn) break;
-      if(allowedS(a2) && allowedS(b2)) return {ok:true, s1:a2, s2:b2, note:'nudged'};
-      aa = a2; bb = b2;
-    }
-  }
-  return {ok:false, note:'no legal symmetric pair on station'};
-}
-
-/* ---------- keep-out utilities ---------- */
-/* Collect windows on a given axis where attachments are forbidden */
-function buildKeepouts(axisIndex, edgeClearIn, jointClearIn){
-  const ex = extentAlong(axisIndex);
-  const K = [];
-  // Global edges (6")
-  K.push([ex.min, ex.min + edgeClearIn]);
-  K.push([ex.max - edgeClearIn, ex.max]);
-
-  // Per-segment forbidden spans
-  for(const seg of segments){
-    const a0 = seg.start[axisIndex], a1 = seg.end[axisIndex];
-    const mn = Math.min(a0,a1), mx = Math.max(a0,a1);
-
-    // Entire segment forbidden for these types:
-    // C=coupling, V=valve, T=tee, W=tee+valve
-    if(['C','V','T','W'].includes(seg.tCode)){
-      K.push([mn - jointClearIn, mx + jointClearIn]); // pad by 2"
-    }
-  }
-
-  // Joints: ±2" around every internal joint
-  for(let j=0;j<segments.length-1;j++){
-    const end = segments[j].end[axisIndex];
-    K.push([end - jointClearIn, end + jointClearIn]);
-  }
-
-  return mergeWindows(K);
-}
-function mergeWindows(wins){
-  if(!wins.length) return [];
-  wins.sort((A,B)=>A[0]-B[0]);
-  const out=[wins[0].slice()];
-  for(let i=1;i<wins.length;i++){
-    const w=wins[i], last=out[out.length-1];
-    if(w[0] <= last[1]) last[1] = Math.max(last[1], w[1]);
-    else out.push(w.slice());
-  }
-  return out;
-}
-function allowedPoint(x, wins){ for(const w of wins){ if(x>=w[0] && x<=w[1]) return false; } return true; }
-
-/* Try to place a symmetric pair about CG along an axis, avoiding keep-outs and respecting spread & edges.
-   Returns: {ok, p1, p2, note} with p1<=p2 if ok; else {ok:false, note} */
-function findSymmetricPair(axisIndex, ex, cgCoord, keepouts, minOffsetIn, pulleySpreadMaxIn){
-  // Start from some offset >= minOffsetIn and try outward, shrinking if needed
-  // Because spacing "doesn't matter", we'll prefer the smallest legal offset from CG.
-  const step = 0.5; // 1/2" search
-  const maxOffset = ex.span/2; // can't exceed half-span
-  let best = null;
-
-  // We'll walk offset from minOffsetIn up to maxOffset
-  for(let off = Math.max(minOffsetIn, 0); off <= maxOffset + 1e-6; off += step){
-    let a = cgCoord - off, b = cgCoord + off;
-
-    // clamp to extents
-    a = Math.max(ex.min, Math.min(ex.max, a));
-    b = Math.max(ex.min, Math.min(ex.max, b));
-
-    // ensure ordering
-    if(a>b){ const t=a; a=b; b=t; }
-
-    // spread check
-    if((b-a) > pulleySpreadMaxIn) continue;
-
-    // if either point is in keepout → try nudging both outward symmetrically
-    const tryNudge = ()=>{
-      if(allowedPoint(a, keepouts) && allowedPoint(b, keepouts)) return {ok:true, p1:a, p2:b, note:null};
-
-      // nudge outward while within extents and under spread limit
-      const maxShift = ex.span + 120;
-      for(let k=1; k*step <= maxShift; k++){
-        let a2 = a - step, b2 = b + step;
-        if(a2 < ex.min || b2 > ex.max) break;
-        if((b2 - a2) > pulleySpreadMaxIn) break;
-        if(allowedPoint(a2, keepouts) && allowedPoint(b2, keepouts)) return {ok:true, p1:a2, p2:b2, note:'nudged'};
-        a = a2; b = b2;
-      }
-      return {ok:false, note:'blocked by keep-outs'};
-    };
-
-    const res = tryNudge();
-    if(res.ok){ best = res; break; }
-  }
-
-  return best || {ok:false, note:'no legal symmetric pair on axis'};
-}
-
-/* When axisSecond === 'NONE', place two pairs on X (4-on-X).
-   We choose an inner pair (near CG) and an outer pair (further out), both legal. */
-function findTwoPairsOnOneAxis(axisIndex, ex, cgCoord, keepouts, minOffsetIn, pulleySpreadMaxIn){
-  const inner = findSymmetricPair(axisIndex, ex, cgCoord, keepouts, minOffsetIn, pulleySpreadMaxIn);
-  if(!inner.ok) return {ok:false, note:'inner pair failed: '+inner.note};
-
-  // For the outer pair, start beyond inner by +12" and search
-  const outerStart = Math.max(minOffsetIn, (inner.p2 - cgCoord) + 12);
-  const outer = findSymmetricPair(axisIndex, ex, cgCoord, keepouts, outerStart, pulleySpreadMaxIn);
-  if(!outer.ok) return {ok:false, note:'outer pair failed: '+outer.note};
-
-  return {ok:true, inner, outer};
-}
-
-/* Utility: decide second axis given UI choice and spans */
-function decideSecondAxis(choice, spanY, spanZ){
-  if(choice==='Y'||choice==='Z'||choice==='NONE') return choice;
-  // AUTO: prefer Y if spanY >= 12", else Z if spanZ >= 12", else NONE
-  if(spanY >= 12) return 'Y';
-  if(spanZ >= 12) return 'Z';
-  return 'NONE';
-}
 
 /* ---------- state ---------- */
 let items=[], segments=[], marks=[], lumps=[], itemsFoot=[];
@@ -553,10 +309,8 @@ function unitFromOrient(code){ return ORIENTS[code] || [1,0,0]; }
 function addLumpAtSegmentMid(segIdx, w){
   const s=segments[segIdx].start, e=segments[segIdx].end;
   const p=mid3(s,e);
-  lumps.push({p, w, segIdx}); // keep seg index for stationing
+  lumps.push({p, w});
 }
-
-
 /* push a sub-leg and return its segment index */
 function pushLeg(dir, L, labelIdx, tCode){
   const sIdx = segments.length;
@@ -717,10 +471,18 @@ function computeCG(){
 }
 
 /* ---------- axis utilities ---------- */
-function extentAlong(axisIndex){
-  const arr=[]; for(let i=0;i<segments.length;i++){ arr.push(segments[i].start[axisIndex], segments[i].end[axisIndex]); }
-  const mn=Math.min.apply(null,arr), mx=Math.max.apply(null,arr);
-  return {min:mn, max:mx, span:mx-mn};
+function extentAlong(axisIndex, radius){
+  const vals = [];
+  for (let i=0;i<segments.length;i++){
+    vals.push(segments[i].start[axisIndex], segments[i].end[axisIndex]);
+  }
+  let mn = Math.min.apply(null, vals);
+  let mx = Math.max.apply(null, vals);
+  if (!isFinite(mn)) { mn = 0; mx = 0; }
+  // Expand to the OUTER surface (±R)
+  mn -= radius;
+  mx += radius;
+  return {min: mn, max: mx, span: mx - mn};
 }
 function chooseAxis(sel){
   if(sel!=='AUTO') return sel;
@@ -769,245 +531,85 @@ function placeSinglePick(axisIndex, target, ext, windows){
   return {pos:Math.max(ext.min, Math.min(ext.max, target)), note:'Could not fully clear all couplings'};
 }
 
- function computeAndDraw(){
+/* ---------- compute & draw ---------- */
+function computeAndDraw(){
   if(items.length===0){ alert('Add at least one item.'); return; }
 
-  // --- CG in world (for totals + roll info)
   const {CG,totalW}=computeCG();
 
-  // --- Station (chainage) model for 2-pick placement (real-world along-the-run)
-  const station = buildStationModel();
-  const edgeClear = 6;                // keep off ends
-  const jointClear = 2;               // joints ±2"
-  const pulleySpreadMaxIn = 240;      // 20 ft per pair
-  const minOffsetIn = Math.max(0, Number(el('minPairOffset').value)||12);
+  // pipe radius (for edge distances & plotting envelope)
+const R = (Number(el('pipeOD').value) || 24) / 2;
 
-  const Kstation = buildKeepoutsS(station, edgeClear, jointClear);
-  const { sCG } = computeCGStation(station);
-  const pairS = findSymmetricPairS(station, sCG, minOffsetIn, pulleySpreadMaxIn, Kstation);
+// radius-aware extents for all three axes (outer surface)
+const exX = extentAlong(0, R);
+const exY = extentAlong(1, R);
+const exZ = extentAlong(2, R);
 
-  // World positions for 2-pick (these are points on the actual 3D run)
-  let PleftW = null, PrightW = null, pairNote = null;
-  if(pairS.ok){
-    PleftW  = station.worldPointAtS(pairS.s1);
-    PrightW = station.worldPointAtS(pairS.s2);
-    pairNote = pairS.note;
-  }else{
-    // fallback: both at CG station (rare; still drawn)
-    PleftW = PrightW = station.worldPointAtS(sCG);
-    pairNote = pairS.note;
-  }
-
-  // --- Extents along axes (for reporting and 4-pick solver)
-  const exX = extentAlong(0);
-  const exY = extentAlong(1);
-  const exZ = extentAlong(2);
-
-// ---------- FOUR-PICK SOLVER ----------
-const edgeClear4 = edgeClear; // 6 inches
-const jointClear4 = jointClear; // 2 inches
-const pulleySpreadMaxIn4 = pulleySpreadMaxIn; // 240 inches
-const minOffsetIn4 = minOffsetIn; // User-defined, default 12 inches
-// Keep-outs per axis
-const Kx = buildKeepouts(0, edgeClear4, jointClear4);
-const Ky = buildKeepouts(1, edgeClear4, jointClear4);
-const Kz = buildKeepouts(2, edgeClear4, jointClear4);
-// Second axis decision
-const axis2Choice = (el('axisSecond')?.value) || 'AUTO';
-const axis2 = decideSecondAxis(axis2Choice, exY.span, exZ.span); // 'Y' | 'Z' | 'NONE'
-// Initialize picks
-const fourPicks = { list: [], notes: [] };
-// X pair (always required)
-const pairX = findSymmetricPair(0, exX, CG[0], Kx, minOffsetIn4, pulleySpreadMaxIn4);
-if (pairX.ok) {
-  fourPicks.list.push({ axis: 'X', pos: pairX.p1, label: 'X1', color: COLORS.pX1 });
-  fourPicks.list.push({ axis: 'X', pos: pairX.p2, label: 'X2', color: COLORS.pX2 });
-} else {
-  fourPicks.notes.push('Could not place X pair: ' + pairX.note);
-}
-// Second pair or fallback
-if (axis2 === 'Y' && exY.span >= 12) {
-  const pairY = findSymmetricPair(1, exY, CG[1], Ky, minOffsetIn4, pulleySpreadMaxIn4);
-  if (pairY.ok) {
-    fourPicks.list.push({ axis: 'Y', pos: pairY.p1, label: 'Y1', color: COLORS.pS1 });
-    fourPicks.list.push({ axis: 'Y', pos: pairY.p2, label: 'Y2', color: COLORS.pS2 });
-  } else {
-    fourPicks.notes.push('Could not place Y pair: ' + pairY.note);
-  }
-} else if (axis2 === 'Z' && exZ.span >= 12) {
-  const pairZ = findSymmetricPair(2, exZ, CG[2], Kz, minOffsetIn4, pulleySpreadMaxIn4);
-  if (pairZ.ok) {
-    fourPicks.list.push({ axis: 'Z', pos: pairZ.p1, label: 'Z1', color: COLORS.pS1 });
-    fourPicks.list.push({ axis: 'Z', pos: pairZ.p2, label: 'Z2', color: COLORS.pS2 });
-  } else {
-    fourPicks.notes.push('Could not place Z pair: ' + pairZ.note);
-  }
-}
-// Fallback: If fewer than 4 picks, try 4-on-X
-if (fourPicks.list.length < 4) {
-  const twoX = findTwoPairsOnOneAxis(0, exX, CG[0], Kx, minOffsetIn4, pulleySpreadMaxIn4);
-  if (twoX.ok) {
-    fourPicks.list = [
-      { axis: 'X', pos: twoX.inner.p1, label: 'X1', color: COLORS.pX1 },
-      { axis: 'X', pos: twoX.inner.p2, label: 'X2', color: COLORS.pX2 },
-      { axis: 'X', pos: twoX.outer.p1, label: 'X3', color: COLORS.pS1 },
-      { axis: 'X', pos: twoX.outer.p2, label: 'X4', color: COLORS.pS2 },
-    ];
-    fourPicks.notes.push('Used 4-on-X due to ' + (axis2 === 'NONE' ? 'user choice' : 'Y/Z constraints'));
-  } else {
-    fourPicks.notes.push('4-on-X failed: ' + twoX.note);
-  }
-}
-// Spread warnings
-function checkSpreadWarn(axis, a, b) {
-  if (Math.abs(b - a) > pulleySpreadMaxIn4) {
-    fourPicks.notes.push(axis + ' pair exceeds 20′; add more rigging');
-  }
-}
-const getExt = ax => ax === 'X' ? exX : (ax === 'Y' ? exY : exZ);
-const seenAxes = new Map();
-for (const pk of fourPicks.list) {
-  if (!seenAxes.has(pk.axis)) seenAxes.set(pk.axis, []);
-  seenAxes.get(pk.axis).push(pk.pos);
-}
-for (const [ax, arr] of seenAxes) {
-  if (arr.length >= 2) checkSpreadWarn(ax, arr[0], arr[arr.length - 1]);
-}
-// Build output lines
-const outLines = [];
-fourPicks.list.sort((A, B) => (A.axis === B.axis) ? (A.pos - B.pos) : (A.axis < B.axis ? -1 : 1));
-for (const pk of fourPicks.list) {
-  const ex = getExt(pk.axis);
-  outLines.push(`${pk.axis}-Axis: Pick-${pk.label} = ${fmtInchesQ(pk.pos - ex.min)} from ${edgeName(pk.axis)}`);
-}
-const FOUR = { picks: fourPicks, lines: outLines };
-  // --- Single-pick (CG) distances from edges (for quick reference)
-  const dX = (exX.span>0)? (CG[0]-exX.min) : 0;
-  const dY = (exY.span>0)? (CG[1]-exY.min) : 0;
-  const dZ = (exZ.span>0)? (CG[2]-exZ.min) : 0;
-
-  // --- 2-pick reporting using selected axes, but positions come from world points
+// distances from OUTER MIN edge → CG
+const dX = (exX.span>0)? (CG[0] - exX.min) : 0;
+const dY = (exY.span>0)? (CG[1] - exY.min) : 0;
+const dZ = (exZ.span>0)? (CG[2] - exZ.min) : 0;
+  // 2-pick logic
   const axisL = chooseAxis(el('axisL').value);
   const axisR = chooseAxis(el('axisR').value);
   const axL = (axisL==='X'?0:(axisL==='Y'?1:2));
   const axR = (axisR==='X'?0:(axisR==='Y'?1:2));
   const exL = (axisL==='X'?exX:(axisL==='Y'?exY:exZ));
   const exR = (axisR==='X'?exX:(axisR==='Y'?exY:exZ));
-  const posL_axis = Math.max(exL.min, Math.min(exL.max, PleftW[axL]));
-  const posR_axis = Math.max(exR.min, Math.min(exR.max, PrightW[axR]));
 
-  // --- Roll info
+  let spacing = Number(el('pickSpacing').value)||72; if(spacing<0) spacing=0;
+  const targL = Math.max(exL.min, Math.min(exL.max, CG[axL] - spacing/2));
+  const targR = Math.max(exR.min, Math.min(exR.max, CG[axR] + spacing/2));
+
+  const clear = Math.max(0, Number(el('couplingClear').value)||2);
+  const winL = couplingWindows(axL, clear);
+  const winR = couplingWindows(axR, clear);
+
+  const placedL = placeSinglePick(axL, targL, exL, winL);
+  const placedR = placeSinglePick(axR, targR, exR, winR);
+
+  const minEdgeL = exL.min, minEdgeR = exR.min;
+
+  // CG-based informational roll
   const R=(Number(el('pipeOD').value)||24)/2;
   const y=CG[1], yclamped=Math.max(-R, Math.min(R, y));
   const rollDegInfo = (R>0)? (Math.asin(yclamped/R)*180/Math.PI) : 0;
   const rollSideInfo = (y>0?'toward +Y':(y<0?'toward -Y':'no roll needed'));
   const arc = R * (Math.abs(rollDegInfo)*Math.PI/180);
 
+  // Operator target roll
   let targetRoll = parseFloat(el('targetRoll').value);
-  if(!(targetRoll===0 || !!targetRoll)) targetRoll = 0;
+  if(!(targetRoll===0 || !!targetRoll)) targetRoll = 0; // default to 0 if blank
 
-  // --- Output HTML
+  // Output
   let html='';
   html += '<h3>Totals</h3>';
   html += '<div>Total weight: <b>'+totalW.toFixed(1)+' lb</b></div>';
   html += '<div>CG (in): X=<b>'+CG[0].toFixed(2)+'</b>, Y=<b>'+CG[1].toFixed(2)+'</b>, Z=<b>'+CG[2].toFixed(2)+'</b></div>';
 
   html += '<h3>Single pick (center of gravity)</h3>';
-  const parts=[];
+  let parts=[];
   if(exX.span>0) parts.push(fmtInchesQ(dX)+' from the '+edgeName('X'));
   if(exY.span>0) parts.push(fmtInchesQ(dY)+' from the '+edgeName('Y'));
   if(exZ.span>0) parts.push(fmtInchesQ(dZ)+' from the '+edgeName('Z'));
   if(parts.length){ html += '<div><b>'+parts.join(' and ')+'</b>.</div>'; }
 
-  // Pick points (station/world aware)
   html += '<h3>Pick Points</h3>';
-  html += '<div><span class="pill left">Left pick</span> axis <b>'+axisL+'</b>: '
-        + fmtFtIn(posL_axis - exL.min) + ' from Left Edge';
-  html += ' &nbsp; <span class="muted">(Z at pick: '+PleftW[2].toFixed(2)+'")</span></div>';
-
-  html += '<div><span class="pill right">Right pick</span> axis <b>'+axisR+'</b>: '
-        + fmtFtIn(posR_axis - exR.min) + ' from Left Edge';
-  html += ' &nbsp; <span class="muted">(Z at pick: '+PrightW[2].toFixed(2)+'")</span></div>';
-
-  if(pairNote){ html += '<div class="muted">Pair note: '+pairNote+'</div>'; }
-
-  // Roll
+  html += '<div><span class="pill left">Left pick</span> axis <b>'+axisL+'</b>: '+fmtFtIn(placedL.pos - minEdgeL)+' from Left Edge</div>';
+  html += '<div><span class="pill right">Right pick</span> axis <b>'+axisR+'</b>: '+fmtFtIn(placedR.pos - minEdgeR)+' from Left Edge</div>';
+  if(placedL.note || placedR.note){
+    html += '<div class="muted">'+[placedL.note, placedR.note].filter(Boolean).join(' · ')+'</div>';
+  }
   html += '<h3>Roll</h3>';
   html += '<div><span class="pill roll">CG roll (info)</span> ≈ '+rollDegInfo.toFixed(1)+'° '+rollSideInfo+'; circumference offset per choker ≈ '+(r8(arc)).toFixed(3).replace(/\\.000$/,'')+'"</div>';
   html += '<div style="margin-top:8px;"><span class="bigcall">SET PIPE ROLL: '+(targetRoll>=0?'+':'')+targetRoll.toFixed(1)+'° (toward '+(targetRoll>=0?'+Y':'−Y')+')</span></div>';
   html += '<div class="muted">This is the roll you give to the operator on the pipe. Use the preset above to “plumb the 45° face” (sets +45°).</div>';
-
-  // 4-pick output
-  html += '<h3>4-Pick Positions</h3>';
-  if(FOUR.lines.length){
-    html += '<div>'+FOUR.lines.map(s=>('<div>'+s+'</div>')).join('')+'</div>';
-  }else{
-    html += '<div class="muted">Could not determine 4 picks under current constraints.</div>';
-  }
-  if(FOUR.picks.notes.length){
-    html += '<div class="muted">'+FOUR.picks.notes.join(' · ')+'</div>';
-  }
-
   el('summary').innerHTML = html;
 
-  // Draw
-  drawAll({
-    axisL, axisR,
-    posL: posL_axis, posR: posR_axis,   // used only for labels/edge-readouts
-    PleftW, PrightW,                    // true 3D world pick points
-    targetRoll, rollDegInfo, CG,
-    FOUR
-  });
+  drawAll({axisL, axisR, posL:placedL.pos, posR:placedR.pos, targetRoll, rollDegInfo, CG, R});
 
-  el('downloadBtn').disabled=false;
-}
- 
-  el('summary').innerHTML = html;
-
-drawAll({
-  axisL, axisR,
-  // axis values only used for labels; we’ll also pass world points:
-  posL: posL_axis, posR: posR_axis,
-  PleftW, PrightW,                // <-- new
-  targetRoll, rollDegInfo, CG,
-  FOUR                            // keep your 4-pick object for dot overlays
-});
-/* Find 3D world point where pipe crosses a specific coordinate on a given axis */
-function findWorldPointAtAxisCoord(axisIndex, targetCoord){
-  // Search through all segments to find where the pipe crosses this coordinate
-  for(let i=0; i<segments.length; i++){
-    const seg = segments[i];
-    const a0 = seg.start[axisIndex];
-    const a1 = seg.end[axisIndex];
-    const min = Math.min(a0, a1);
-    const max = Math.max(a0, a1);
-    
-    // Check if targetCoord falls within this segment's range on this axis
-    if(targetCoord >= min - 1e-6 && targetCoord <= max + 1e-6){
-      // Find parametric t where this segment crosses targetCoord
-      const range = a1 - a0;
-      const t = (range === 0) ? 0 : (targetCoord - a0) / range;
-      
-      // Interpolate full 3D position
-      return [
-        seg.start[0] + (seg.end[0] - seg.start[0]) * t,
-        seg.start[1] + (seg.end[1] - seg.start[1]) * t,
-        seg.start[2] + (seg.end[2] - seg.start[2]) * t
-      ];
-    }
-  }
-  
-  // Fallback: return a point with targetCoord on the specified axis, zeros elsewhere
-  const pt = [0, 0, 0];
-  pt[axisIndex] = targetCoord;
-  return pt;
-}
-
-
-
-/* ---------- drawing ---------- */
-
-  function drawAll(picks){
+  /* ---------- drawing ---------- */
+function drawAll(picks){
   ctx=setupCanvas(sheet, 1000, 1050);
   const W=1000,H=1050,pad=28, secH=Math.floor((H-pad*4)/2);
   const planRect={x:pad,y:pad,w:W-2*pad,h:secH};
@@ -1018,9 +620,9 @@ function findWorldPointAtAxisCoord(axisIndex, targetCoord){
   const verts=[[0,0,0]]; for(let i=0;i<segments.length;i++){ verts.push(segments[i].end.slice()); }
   const px=verts.map(v=>v[0]), py=verts.map(v=>v[1]), pz=verts.map(v=>v[2]);
 
-  drawProjection(planRect, px, py, 'Plan (X–Y)', picks, 'XY', picks.CG);
-  drawProjection(elevRect, px, pz, 'Elevation (X–Z)', picks, 'XZ', picks.CG);
-
+  drawProjection(planRect, px, py, 'Plan (X–Y)', picks, 'XY', picks.CG, picks.R);
+drawProjection(elevRect, px, pz, 'Elevation (X–Z)', picks, 'XZ', picks.CG, picks.R);
+  
   drawRollDial(W/2, H-120, 90, picks.targetRoll);
 }
 
@@ -1041,10 +643,12 @@ function drawCGBullseye(x, y, label){
   ctx.restore();
 }
 
-function drawProjection(rect, px, py, title, picks, plane, cgWorld){
-  const minX=Math.min.apply(null, px.concat([0])), maxX=Math.max.apply(null, px.concat([1]));
-  const minY=Math.min.apply(null, py.concat([-1])), maxY=Math.max.apply(null, py.concat([1]));
-
+function drawProjection(rect, px, py, title, picks, plane, cgWorld, R){
+  const minX = Math.min.apply(null, px.concat([0])) - R;
+  const maxX = Math.max.apply(null, px.concat([1])) + R;
+  const minY = Math.min.apply(null, py.concat([-1])) - R;
+  const maxY = Math.max.apply(null, py.concat([1])) + R;
+  
   const pad=46, sx=(rect.w-pad*2)/((maxX-minX)||1), sy=(rect.h-pad*2)/((maxY-minY)||1), s=Math.min(sx,sy);
   const mapX=x=>rect.x+pad+(x-minX)*s;
   const mapY=y=>rect.y+rect.h-pad-(y-minY)*s;
@@ -1096,22 +700,6 @@ function drawProjection(rect, px, py, title, picks, plane, cgWorld){
     ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
     ctx.fillStyle='#000'; ctx.font='12px system-ui'; ctx.fillText(label, x+6, y-16);
   }
-  function drawPickDot(x, y, color, label){
-    ctx.save();
-    ctx.fillStyle = color;
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(x, y, 6, 0, Math.PI*2);
-    ctx.fill();
-    ctx.stroke();
-    
-    // Label
-    ctx.fillStyle = '#000';
-    ctx.font = '11px system-ui';
-    ctx.fillText(label, x + 8, y - 8);
-    ctx.restore();
-  }
   function drawPick(axis, pos, color, label){
     let pxCoord=0, pyCoord=0;
     if(axis==='X'){ pxCoord=pos; pyCoord=0; }
@@ -1125,35 +713,9 @@ function drawProjection(rect, px, py, title, picks, plane, cgWorld){
     drawLeader(pillX + pillW/2, topY+12, mapX(pxCoord), mapY(pyCoord), color);
     drawPickMarker(mapX(pxCoord), mapY(pyCoord), color, label);
   }
-  function drawPickWorld(P, color, label){
-  const pxCoord = P[0];
-  const pyCoord = (plane==='XY') ? P[1] : P[2];
+  drawPick(picks.axisL, picks.posL, COLORS.pickLeft, 'L');
+  drawPick(picks.axisR, picks.posR, COLORS.pickRight, 'R');
 
-  const topY=rect.y+10;
-  const pillX = (label==='L') ? rect.x+12 : rect.x+152;
-  const pillW = 140;
-  const pillText = (label==='L') ? ('Left pick') : ('Right pick');
-
-  drawTopPill(pillX, topY-8, pillW, 20, color, pillText);
-  drawLeader(pillX + pillW/2, topY+12, mapX(pxCoord), mapY(pyCoord), color);
-  drawPickMarker(mapX(pxCoord), mapY(pyCoord), color, label);
-}
-
- drawPickWorld(picks.PleftW,  COLORS.pickLeft,  'L');
-drawPickWorld(picks.PrightW, COLORS.pickRight, 'R' // 4-pick dots - now using actual 3D positions along the pipe
-if (picks && picks.FOUR && picks.FOUR.picks && picks.FOUR.picks.list) {
-  for (const pk of picks.FOUR.picks.list) {
-    // Convert axis position to 3D world coordinate
-    const axisIdx = (pk.axis === 'X') ? 0 : (pk.axis === 'Y') ? 1 : 2;
-    const worldPt = findWorldPointAtAxisCoord(axisIdx, pk.pos);
-    
-    // Project to current view plane
-    const pxCoord = worldPt[0];
-    const pyCoord = (plane === 'XY') ? worldPt[1] : worldPt[2];
-    
-    drawPickDot(mapX(pxCoord), mapY(pyCoord), pk.color, pk.label);
-  }
-}
   // CG bullseye
   if (cgWorld){
     const cgX = cgWorld[0];
@@ -1165,6 +727,27 @@ if (picks && picks.FOUR && picks.FOUR.picks && picks.FOUR.picks.list) {
   ctx.strokeStyle='#cfd4d9'; ctx.lineWidth=1; ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
 }
 
+/* ---------- big roll dial ---------- */
+function drawRollDial(cx, cy, r, targetDeg){
+  ctx.strokeStyle = COLORS.roll; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke();
+
+  ctx.strokeStyle='#999'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy-r); ctx.stroke();
+
+  const a0 = -Math.PI/2; // up is 0°
+  const a1 = a0 + (targetDeg * Math.PI/180);
+  ctx.fillStyle='rgba(91,192,255,0.25)';
+  ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,a0,a1, targetDeg<0); ctx.closePath(); ctx.fill();
+
+  ctx.strokeStyle=COLORS.roll; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx + r*Math.cos(a1), cy + r*Math.sin(a1)); ctx.stroke();
+
+  ctx.fillStyle='#000'; ctx.font='14px system-ui'; ctx.fillText('Set Pipe Roll', cx-42, cy-r-22);
+  ctx.font='18px system-ui'; ctx.fillText((targetDeg>=0?'+':'')+targetDeg.toFixed(1)+'°', cx-24, cy+8);
+  ctx.font='12px system-ui'; ctx.fillText('(+Y)', cx-8, cy-r-12);
+  ctx.fillText('(−Y)', cx-12, cy+r+2);
+}
 </script>
 </body>
 </html>
