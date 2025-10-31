@@ -190,7 +190,7 @@ const W_EL90=475.0, S_EL90=36.0;
 const W_EL45=240.0, S_EL45=15.0;
 const W_COUP=115.0;
 const W_VALVE_BODY=451.0, L_VALVE_STD=12.0;
-const W_TEE_BODY=477.0, L_TEE=20.0;
+const W_TEE_BODY=477.0, L_TEE=36.0;
 
 const COLORS={
   axisX:'#d12222', axisY:'#2a9d2a', axisZ:'#1f6feb',
@@ -471,10 +471,18 @@ function computeCG(){
 }
 
 /* ---------- axis utilities ---------- */
-function extentAlong(axisIndex){
-  const arr=[]; for(let i=0;i<segments.length;i++){ arr.push(segments[i].start[axisIndex], segments[i].end[axisIndex]); }
-  const mn=Math.min.apply(null,arr), mx=Math.max.apply(null,arr);
-  return {min:mn, max:mx, span:mx-mn};
+function extentAlong(axisIndex, radius = 0){
+  const vals = [];
+  for (let i=0;i<segments.length;i++){
+    vals.push(segments[i].start[axisIndex], segments[i].end[axisIndex]);
+  }
+  let mn = Math.min.apply(null, vals);
+  let mx = Math.max.apply(null, vals);
+  if (!isFinite(mn)) { mn = 0; mx = 0; }
+  // Expand to the OUTER surface (±R)
+  mn -= radius;
+  mx += radius;
+  return {min: mn, max: mx, span: mx - mn};
 }
 function chooseAxis(sel){
   if(sel!=='AUTO') return sel;
@@ -528,17 +536,19 @@ function computeAndDraw(){
   if(items.length===0){ alert('Add at least one item.'); return; }
 
   const {CG,totalW}=computeCG();
+// pipe radius (for edge distances & plotting envelope)
+const R = (Number(el('pipeOD').value) || 24) / 2;
 
-  // extents for all three axes
-  const exX = extentAlong(0);
-  const exY = extentAlong(1);
-  const exZ = extentAlong(2);
 
-  // distances from MIN edge → CG (single pick at CG)
-  const dX = (exX.span>0)? (CG[0]-exX.min) : 0;
-  const dY = (exY.span>0)? (CG[1]-exY.min) : 0;
-  const dZ = (exZ.span>0)? (CG[2]-exZ.min) : 0;
+// radius-aware extents for all three axes (outer surface)
+const exX = extentAlong(0, R);
+const exY = extentAlong(1, R);
+const exZ = extentAlong(2, R);
 
+// distances from OUTER MIN edge → CG
+const dX = (exX.span>0)? (CG[0] - exX.min) : 0;
+const dY = (exY.span>0)? (CG[1] - exY.min) : 0;
+const dZ = (exZ.span>0)? (CG[2] - exZ.min) : 0;
   // 2-pick logic
   const axisL = chooseAxis(el('axisL').value);
   const axisR = chooseAxis(el('axisR').value);
@@ -561,7 +571,7 @@ function computeAndDraw(){
   const minEdgeL = exL.min, minEdgeR = exR.min;
 
   // CG-based informational roll
-  const R=(Number(el('pipeOD').value)||24)/2;
+  
   const y=CG[1], yclamped=Math.max(-R, Math.min(R, y));
   const rollDegInfo = (R>0)? (Math.asin(yclamped/R)*180/Math.PI) : 0;
   const rollSideInfo = (y>0?'toward +Y':(y<0?'toward -Y':'no roll needed'));
@@ -596,11 +606,9 @@ function computeAndDraw(){
   html += '<div class="muted">This is the roll you give to the operator on the pipe. Use the preset above to “plumb the 45° face” (sets +45°).</div>';
   el('summary').innerHTML = html;
 
-  drawAll({axisL, axisR, posL:placedL.pos, posR:placedR.pos, targetRoll, rollDegInfo, CG});
-  el('downloadBtn').disabled=false;
-}
-
-/* ---------- drawing ---------- */
+  drawAll({axisL, axisR, posL:placedL.pos, posR:placedR.pos, targetRoll, rollDegInfo, CG, R});
+    }
+  /* ---------- drawing ---------- */
 function drawAll(picks){
   ctx=setupCanvas(sheet, 1000, 1050);
   const W=1000,H=1050,pad=28, secH=Math.floor((H-pad*4)/2);
@@ -612,9 +620,9 @@ function drawAll(picks){
   const verts=[[0,0,0]]; for(let i=0;i<segments.length;i++){ verts.push(segments[i].end.slice()); }
   const px=verts.map(v=>v[0]), py=verts.map(v=>v[1]), pz=verts.map(v=>v[2]);
 
-  drawProjection(planRect, px, py, 'Plan (X–Y)', picks, 'XY', picks.CG);
-  drawProjection(elevRect, px, pz, 'Elevation (X–Z)', picks, 'XZ', picks.CG);
-
+  drawProjection(planRect, px, py, 'Plan (X–Y)', picks, 'XY', picks.CG, picks.R);
+drawProjection(elevRect, px, pz, 'Elevation (X–Z)', picks, 'XZ', picks.CG, picks.R);
+  
   drawRollDial(W/2, H-120, 90, picks.targetRoll);
 }
 
@@ -635,10 +643,12 @@ function drawCGBullseye(x, y, label){
   ctx.restore();
 }
 
-function drawProjection(rect, px, py, title, picks, plane, cgWorld){
-  const minX=Math.min.apply(null, px.concat([0])), maxX=Math.max.apply(null, px.concat([1]));
-  const minY=Math.min.apply(null, py.concat([-1])), maxY=Math.max.apply(null, py.concat([1]));
-
+function drawProjection(rect, px, py, title, picks, plane, cgWorld, R){
+  const minX = Math.min.apply(null, px.concat([0])) - R;
+  const maxX = Math.max.apply(null, px.concat([1])) + R;
+  const minY = Math.min.apply(null, py.concat([-1])) - R;
+  const maxY = Math.max.apply(null, py.concat([1])) + R;
+  
   const pad=46, sx=(rect.w-pad*2)/((maxX-minX)||1), sy=(rect.h-pad*2)/((maxY-minY)||1), s=Math.min(sx,sy);
   const mapX=x=>rect.x+pad+(x-minX)*s;
   const mapY=y=>rect.y+rect.h-pad-(y-minY)*s;
