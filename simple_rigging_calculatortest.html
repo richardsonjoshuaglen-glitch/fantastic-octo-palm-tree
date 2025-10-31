@@ -536,7 +536,8 @@ function computeAndDraw(){
   if(items.length===0){ alert('Add at least one item.'); return; }
 
   const {CG,totalW}=computeCG();
-
+// pipe radius (for edge distances & plotting envelope)
+const R = (Number(el('pipeOD').value) || 24) / 2;
 
 
 // radius-aware extents for all three axes (outer surface)
@@ -570,7 +571,7 @@ const dZ = (exZ.span>0)? (CG[2] - exZ.min) : 0;
   const minEdgeL = exL.min, minEdgeR = exR.min;
 
   // CG-based informational roll
-  const R=(Number(el('pipeOD').value)||24)/2;
+  
   const y=CG[1], yclamped=Math.max(-R, Math.min(R, y));
   const rollDegInfo = (R>0)? (Math.asin(yclamped/R)*180/Math.PI) : 0;
   const rollSideInfo = (y>0?'toward +Y':(y<0?'toward -Y':'no roll needed'));
