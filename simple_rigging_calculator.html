@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Simple COG Rigging Calculator</title>
+<title>Simple COG Rigging Calculator V3.1</title>
 <style>
   :root{
     --bg:#ffffff; --ink:#111; --panel:#f6f8fa; --border:#e9ecef; --accent:#0d6efd;
@@ -33,7 +33,9 @@
 </style>
 </head>
 <body>
-<h1>Rigging CG Helper — Simple 2-Pick <span class="badge" id="badge">Ready</span></h1>
+<h1>Rigging CG Helper — Simple 2-Pick
+  <span class="badge" id="badge">Ready · v3.1</span>
+</h1>
 
 <!-- OUTPUT FIRST -->
 <fieldset>
@@ -173,7 +175,12 @@
 
 <script>
 /* ---------- setup ---------- */
-(function(){ const b=document.getElementById('badge'); if(b) b.textContent='Ready'; })();
+
+(function(){
+  const b = document.getElementById('badge');
+  if (b) b.textContent = 'Ready · v' + VERSION;
+  document.title = 'Rigging CG Helper v' + VERSION;
+})();
 function el(id){ return document.getElementById(id); }
 function setupCanvas(canvas, cssW, cssH){
   cssW=cssW||1000; cssH=cssH||1000;
@@ -185,7 +192,8 @@ function setupCanvas(canvas, cssW, cssH){
 const sheet=el('sheet'); let ctx=setupCanvas(sheet);
 
 /* ---------- constants ---------- */
-const W_PER_IN_DEFAULT=8.2;
+const VERSION = '3.1';
+  const W_PER_IN_DEFAULT=8.2;
 const W_EL90=475.0, S_EL90=36.0;
 const W_EL45=240.0, S_EL45=15.0;
 const W_COUP=115.0;
