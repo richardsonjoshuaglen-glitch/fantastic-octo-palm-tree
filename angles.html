@@ -48,30 +48,6 @@
       }
     }
 
-    h1 {
-      font-size: 22px;
-      margin: 0 0 6px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .badge {
-      font-size: 11px;
-      padding: 3px 9px;
-      border-radius: 999px;
-      border: 1px solid rgba(148,163,184,0.6);
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-    }
-
-    .subtitle {
-      font-size: 13px;
-      color: var(--muted);
-      margin-bottom: 14px;
-    }
-
     .card {
       background: radial-gradient(circle at top left, rgba(15,23,42,0.9), rgba(15,23,42,0.98));
       border-radius: 14px;
@@ -350,7 +326,7 @@
 
         <div class="metrics">
           <div class="metric">
-            <div class="metric-label">Angle from vertical (each leg)</div>
+            <div class="metric-label">Angle from vertical (at hook)</div>
             <div class="metric-value highlight">
               <span id="angleVertical">0.0</span><span class="unit">°</span>
             </div>
@@ -358,11 +334,11 @@
           </div>
 
           <div class="metric">
-            <div class="metric-label">Angle from horizontal (each leg)</div>
+            <div class="metric-label">Angle at load (load ↔ sling)</div>
             <div class="metric-value">
               <span id="angleHorizontal">0.0</span><span class="unit">°</span>
             </div>
-            <div class="metric-note">90° − angle from vertical</div>
+            <div class="metric-note">Angle between load and sling leg</div>
           </div>
 
           <div class="metric danger">
@@ -399,7 +375,7 @@
         </div>
 
         <div class="footnote">
-          Note: This tool assumes a symmetrical 2-leg bridle with equal sling lengths and pick points.
+          Symmetrical 2-leg bridle with equal sling lengths and pick points.
         </div>
       </div>
     </div>
@@ -444,12 +420,13 @@
 
           <!-- angle labels -->
           <text id="labelVertical" class="angle-label" x="250" y="100">θᵥ = 0°</text>
-          <text id="labelHorizontal" class="angle-label" x="265" y="75">θₕ = 0°</text>
+          <!-- now explicitly "at load" -->
+          <text id="labelHorizontal" class="angle-label" x="340" y="170">θ (load) = 0°</text>
           <text id="labelIncluded" class="angle-label" x="240" y="45" text-anchor="middle">Included = 0°</text>
         </svg>
       </div>
 
-      <!-- spread slider now lives with the diagram -->
+      <!-- spread slider with the diagram -->
       <div class="diagram-controls">
         <div class="field">
           <label>
@@ -529,12 +506,14 @@
       } else if (a > 0) {
         thetaV = Math.PI / 2;
       }
+
       const thetaVdeg = thetaV * 180 / Math.PI;
-      const thetaHdeg = 90 - thetaVdeg;
+      // angle at load between load (horizontal) and sling = 90° − angle from vertical
+      const thetaLoadDeg = 90 - thetaVdeg;
       const includedDeg = thetaVdeg * 2;
 
       angleVerticalEl.textContent = thetaVdeg.toFixed(1);
-      angleHorizontalEl.textContent = thetaHdeg.toFixed(1);
+      angleHorizontalEl.textContent = thetaLoadDeg.toFixed(1);
       angleIncludedEl.textContent = includedDeg.toFixed(1);
       verticalDropEl.textContent = y.toFixed(2);
       halfSpanEl.textContent = a.toFixed(2);
@@ -597,15 +576,17 @@
       rightDot.setAttribute('cx', rightX);
       rightDot.setAttribute('cy', loadY);
 
-      labelVertical.textContent = `θᵥ ≈ ${thetaVdeg.toFixed(1)}°`;
-      labelHorizontal.textContent = `θₕ ≈ ${thetaHdeg.toFixed(1)}°`;
+      labelVertical.textContent = `θᵥ (hook) ≈ ${thetaVdeg.toFixed(1)}°`;
       labelIncluded.textContent = `Included ≈ ${includedDeg.toFixed(1)}°`;
+      labelHorizontal.textContent = `θ (load) ≈ ${thetaLoadDeg.toFixed(1)}°`;
 
+      // place labels:
       labelVertical.setAttribute('x', cx + 6);
       labelVertical.setAttribute('y', hookY + (loadY - hookY) * 0.45);
 
-      labelHorizontal.setAttribute('x', cx + 20);
-      labelHorizontal.setAttribute('y', hookY - 6);
+      // horizontal angle label near right pick point at the load
+      labelHorizontal.setAttribute('x', rightX + 8);
+      labelHorizontal.setAttribute('y', loadY - 6);
 
       labelIncluded.setAttribute('x', cx);
       labelIncluded.setAttribute('y', hookY - 26);
