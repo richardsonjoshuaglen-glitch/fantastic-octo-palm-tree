@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sling Angle Visualizer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #0b1120;
+      --panel: #020617;
+      --accent: #38bdf8;
+      --accent-soft: rgba(56,189,248,0.15);
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --danger: #f97373;
+      --good: #4ade80;
+      --warn: #facc15;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #111827 0, #020617 45%, #020617 100%);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1040px;
+      background: linear-gradient(135deg, rgba(15,23,42,0.95), rgba(17,24,39,0.98));
+      border-radius: 16px;
+      border: 1px solid rgba(148,163,184,0.35);
+      box-shadow: 0 24px 80px rgba(15,23,42,0.9);
+      padding: 20px 20px 24px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+      gap: 20px;
+    }
+
+    @media (max-width: 900px) {
+      .container {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    h1 {
+      font-size: 22px;
+      margin: 0 0 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge {
+      font-size: 11px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(148,163,184,0.6);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .subtitle {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+
+    .card {
+      background: radial-gradient(circle at top left, rgba(15,23,42,0.9), rgba(15,23,42,0.98));
+      border-radius: 14px;
+      border: 1px solid rgba(55,65,81,0.8);
+      padding: 12px 12px 14px;
+    }
+
+    #diagramCard {
+      padding-top: 8px;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .card-title {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+
+    .pill {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(15,118,110,0.12);
+      color: #67e8f9;
+      border: 1px solid rgba(45,212,191,0.35);
+    }
+
+    .inputs-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    @media (max-width: 600px) {
+      .inputs-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    label {
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    label span.unit {
+      font-size: 11px;
+      color: #6b7280;
+    }
+
+    input[type="number"],
+    input[type="range"] {
+      width: 100%;
+      border-radius: 999px;
+      border: 1px solid rgba(75,85,99,0.9);
+      background: rgba(15,23,42,0.9);
+      color: var(--text);
+      padding: 6px 10px;
+      font-size: 13px;
+      outline: none;
+    }
+
+    input[type="number"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(56,189,248,0.8);
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      height: 4px;
+      border-radius: 999px;
+      padding: 0;
+      margin-top: 4px;
+      background: radial-gradient(circle at left, rgba(56,189,248,0.7), rgba(56,189,248,0.1));
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #e5e7eb;
+      border: 2px solid var(--accent);
+      box-shadow: 0 0 0 4px rgba(56,189,248,0.25);
+      cursor: pointer;
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #e5e7eb;
+      border: 2px solid var(--accent);
+      box-shadow: 0 0 0 4px rgba(56,189,248,0.25);
+      cursor: pointer;
+    }
+
+    .range-value {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    #warning {
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--warn);
+      min-height: 14px;
+    }
+
+    .svg-wrap {
+      background: radial-gradient(circle at top, rgba(15,23,42,0.8), rgba(17,24,39,0.95));
+      border-radius: 12px;
+      border: 1px solid rgba(55,65,81,0.8);
+      overflow: hidden;
+    }
+
+    svg {
+      width: 100%;
+      height: 270px;
+      display: block;
+    }
+
+    .angle-label {
+      font-size: 10px;
+      fill: #e5e7eb;
+      paint-order: stroke;
+      stroke: rgba(15,23,42,0.9);
+      stroke-width: 2;
+      stroke-linejoin: round;
+    }
+
+    .hook {
+      fill: none;
+      stroke: #e5e7eb;
+      stroke-width: 2;
+    }
+
+    .hook-circle {
+      fill: #e5e7eb;
+    }
+
+    .sling-leg {
+      stroke: var(--accent);
+      stroke-width: 3;
+    }
+
+    .sling-leg-soft {
+      stroke: rgba(56,189,248,0.4);
+      stroke-width: 5;
+      stroke-linecap: round;
+    }
+
+    .load {
+      fill: rgba(15,118,110,0.5);
+      stroke: rgba(34,197,94,0.8);
+      stroke-width: 2;
+    }
+
+    .ref-line {
+      stroke: rgba(148,163,184,0.4);
+      stroke-width: 1;
+      stroke-dasharray: 4 4;
+    }
+
+    .dot {
+      fill: #e5e7eb;
+      stroke: rgba(15,23,42,0.9);
+      stroke-width: 1;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    @media (max-width: 600px) {
+      .metrics {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .metric {
+      background: radial-gradient(circle at top, rgba(15,23,42,0.9), rgba(15,23,42,0.97));
+      border-radius: 10px;
+      border: 1px solid rgba(55,65,81,0.9);
+      padding: 7px 8px 8px;
+    }
+
+    .metric-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 2px;
+    }
+
+    .metric-value {
+      font-size: 16px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric-value span.unit {
+      font-size: 11px;
+      color: var(--muted);
+      margin-left: 3px;
+    }
+
+    .metric-note {
+      font-size: 10px;
+      color: #6b7280;
+      margin-top: 2px;
+    }
+
+    .metric.highlight .metric-value {
+      color: var(--accent);
+    }
+
+    .metric.danger .metric-value {
+      color: var(--danger);
+    }
+
+    .metric.good .metric-value {
+      color: var(--good);
+    }
+
+    .footnote {
+      margin-top: 8px;
+      font-size: 10px;
+      color: #6b7280;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- LEFT: Controls + numeric readout -->
+    <div>
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Inputs</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px;">Sling length fixed · spread adjusts · angles update live</div>
+          </div>
+          <div class="pill">Sling Angle Lab</div>
+        </div>
+
+        <div class="inputs-grid">
+          <div class="field">
+            <label>
+              <span>Sling length (each leg)</span>
+              <span class="unit">L</span>
+            </label>
+            <input type="number" id="slingLength" min="1" step="0.1" value="10">
+          </div>
+
+          <div class="field">
+            <label>
+              <span>Pick-point spread</span>
+              <span class="unit">between sling feet</span>
+            </label>
+            <input type="range" id="spreadRange" min="0" max="19" step="0.1" value="6">
+            <div class="range-value">
+              <span id="spreadLabel">Spread: 6.0</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="warning"></div>
+
+        <div class="metrics">
+          <div class="metric">
+            <div class="metric-label">Angle from vertical (each leg)</div>
+            <div class="metric-value highlight">
+              <span id="angleVertical">0.0</span><span class="unit">°</span>
+            </div>
+            <div class="metric-note">Used for sling tension charts</div>
+          </div>
+
+          <div class="metric">
+            <div class="metric-label">Angle from horizontal (each leg)</div>
+            <div class="metric-value">
+              <span id="angleHorizontal">0.0</span><span class="unit">°</span>
+            </div>
+            <div class="metric-note">90° − angle from vertical</div>
+          </div>
+
+          <div class="metric danger">
+            <div class="metric-label">Included angle between slings</div>
+            <div class="metric-value">
+              <span id="angleIncluded">0.0</span><span class="unit">°</span>
+            </div>
+            <div class="metric-note">Wide angles = high tension</div>
+          </div>
+        </div>
+
+        <div class="metrics" style="margin-top:6px;">
+          <div class="metric">
+            <div class="metric-label">Vertical distance (hook → load)</div>
+            <div class="metric-value">
+              <span id="verticalDrop">0.0</span><span class="unit">same units as L</span>
+            </div>
+            <div class="metric-note">Right-triangle vertical leg (b)</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Horizontal half-span (center → pick)</div>
+            <div class="metric-value">
+              <span id="halfSpan">0.0</span><span class="unit">same units as L</span>
+            </div>
+            <div class="metric-note">Right-triangle horizontal leg (a)</div>
+          </div>
+          <div class="metric good">
+            <div class="metric-label">Geometry status</div>
+            <div class="metric-value">
+              <span id="statusText">OK</span>
+            </div>
+            <div class="metric-note">Spread ≤ 2 × L</div>
+          </div>
+        </div>
+
+        <div class="footnote">
+          Note: This tool assumes a symmetrical 2-leg bridle with equal sling lengths and pick points.
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Diagram -->
+    <div class="card" id="diagramCard">
+      <div class="card-header">
+        <div class="card-title">Geometry View</div>
+        <div class="pill">Hook at top · load at bottom</div>
+      </div>
+      <div class="svg-wrap">
+        <svg id="diagram" viewBox="0 0 480 270" aria-label="Sling angle diagram">
+          <!-- centerline reference -->
+          <line id="refVertical" class="ref-line" x1="240" y1="10" x2="240" y2="260" />
+          <!-- horizontal reference at hook -->
+          <line id="refHorizontal" class="ref-line" x1="40" y1="60" x2="440" y2="60" />
+
+          <!-- sling "soft glow" -->
+          <line id="slingLeftSoft" class="sling-leg-soft" x1="240" y1="60" x2="140" y2="180" />
+          <line id="slingRightSoft" class="sling-leg-soft" x1="240" y1="60" x2="340" y2="180" />
+
+          <!-- sling legs -->
+          <line id="slingLeft" class="sling-leg" x1="240" y1="60" x2="140" y2="180" />
+          <line id="slingRight" class="sling-leg" x1="240" y1="60" x2="340" y2="180" />
+
+          <!-- load -->
+          <rect id="loadRect" class="load" x="140" y="180" width="200" height="26" rx="4" />
+
+          <!-- hook symbol -->
+          <path id="hookPath" class="hook"
+            d="M240 28
+               c 0 8 -6 12 -6 18
+               c 0 6 4 10 6 10
+               c 2 0 6 -4 6 -10
+               c 0 -6 -6 -10 -6 -18" />
+          <circle id="hookCircle" class="hook-circle" cx="240" cy="22" r="6" />
+
+          <!-- connection dots -->
+          <circle id="hookDot" class="dot" cx="240" cy="60" r="4" />
+          <circle id="leftDot" class="dot" cx="140" cy="180" r="3.3" />
+          <circle id="rightDot" class="dot" cx="340" cy="180" r="3.3" />
+
+          <!-- angle labels -->
+          <text id="labelVertical" class="angle-label" x="250" y="100">θᵥ = 0°</text>
+          <text id="labelHorizontal" class="angle-label" x="265" y="75">θₕ = 0°</text>
+          <text id="labelIncluded" class="angle-label" x="240" y="45" text-anchor="middle">Included = 0°</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const slingLengthInput = document.getElementById('slingLength');
+    const spreadRange = document.getElementById('spreadRange');
+    const spreadLabel = document.getElementById('spreadLabel');
+    const warningEl = document.getElementById('warning');
+
+    const angleVerticalEl = document.getElementById('angleVertical');
+    const angleHorizontalEl = document.getElementById('angleHorizontal');
+    const angleIncludedEl = document.getElementById('angleIncluded');
+    const verticalDropEl = document.getElementById('verticalDrop');
+    const halfSpanEl = document.getElementById('halfSpan');
+    const statusTextEl = document.getElementById('statusText');
+
+    const svg = document.getElementById('diagram');
+
+    const slingLeft = document.getElementById('slingLeft');
+    const slingRight = document.getElementById('slingRight');
+    const slingLeftSoft = document.getElementById('slingLeftSoft');
+    const slingRightSoft = document.getElementById('slingRightSoft');
+    const loadRect = document.getElementById('loadRect');
+    const hookDot = document.getElementById('hookDot');
+    const leftDot = document.getElementById('leftDot');
+    const rightDot = document.getElementById('rightDot');
+
+    const labelVertical = document.getElementById('labelVertical');
+    const labelHorizontal = document.getElementById('labelHorizontal');
+    const labelIncluded = document.getElementById('labelIncluded');
+
+    function clampSpreadToLength(L, spread) {
+      const maxSpread = 2 * L;
+      return Math.max(0, Math.min(spread, maxSpread));
+    }
+
+    function updateDiagram() {
+      let L = parseFloat(slingLengthInput.value);
+      if (!Number.isFinite(L) || L <= 0) {
+        L = 10;
+        slingLengthInput.value = L;
+      }
+
+      const rawSpread = parseFloat(spreadRange.value);
+      const spread = clampSpreadToLength(L, rawSpread);
+      if (spread !== rawSpread) {
+        spreadRange.value = spread.toFixed(2);
+      }
+      spreadLabel.textContent = `Spread: ${spread.toFixed(2)} (same units as L)`;
+
+      const maxSpreadAllowed = 2 * L;
+      if (spread > maxSpreadAllowed - 1e-6) {
+        warningEl.textContent = 'Warning: Spread at or beyond 2 × sling length. Geometry is at the flat limit (90° from vertical).';
+      } else {
+        warningEl.textContent = '';
+      }
+
+      const a = spread / 2; // horizontal leg
+      const underRoot = L * L - a * a;
+      const y = underRoot > 0 ? Math.sqrt(underRoot) : 0; // vertical leg
+
+      let thetaV = 0;
+      if (y > 0) {
+        thetaV = Math.atan(a / y); // radians
+      } else if (a > 0) {
+        thetaV = Math.PI / 2;
+      }
+      const thetaVdeg = thetaV * 180 / Math.PI;
+      const thetaHdeg = 90 - thetaVdeg;
+      const includedDeg = thetaVdeg * 2;
+
+      angleVerticalEl.textContent = thetaVdeg.toFixed(1);
+      angleHorizontalEl.textContent = thetaHdeg.toFixed(1);
+      angleIncludedEl.textContent = includedDeg.toFixed(1);
+      verticalDropEl.textContent = y.toFixed(2);
+      halfSpanEl.textContent = a.toFixed(2);
+
+      if (spread <= maxSpreadAllowed + 1e-6) {
+        statusTextEl.textContent = 'OK';
+        statusTextEl.style.color = 'var(--good)';
+      } else {
+        statusTextEl.textContent = 'Invalid (spread > 2L)';
+        statusTextEl.style.color = 'var(--danger)';
+      }
+
+      const viewBox = svg.viewBox.baseVal;
+      const W = viewBox.width;
+      const H = viewBox.height;
+
+      const maxGeom = L > 0 ? L : 1;
+      const scaleX = (W * 0.4) / maxGeom;
+      const scaleY = (H * 0.65) / maxGeom;
+      const scale = Math.min(scaleX, scaleY);
+
+      const cx = W / 2;
+      const topMargin = 60;
+      const hookY = topMargin;
+      const loadY = hookY + y * scale;
+
+      const leftX = cx - a * scale;
+      const rightX = cx + a * scale;
+      const loadWidth = Math.max(40, spread * scale);
+
+      slingLeft.setAttribute('x1', cx);
+      slingLeft.setAttribute('y1', hookY);
+      slingLeft.setAttribute('x2', leftX);
+      slingLeft.setAttribute('y2', loadY);
+
+      slingRight.setAttribute('x1', cx);
+      slingRight.setAttribute('y1', hookY);
+      slingRight.setAttribute('x2', rightX);
+      slingRight.setAttribute('y2', loadY);
+
+      slingLeftSoft.setAttribute('x1', cx);
+      slingLeftSoft.setAttribute('y1', hookY);
+      slingLeftSoft.setAttribute('x2', leftX);
+      slingLeftSoft.setAttribute('y2', loadY);
+
+      slingRightSoft.setAttribute('x1', cx);
+      slingRightSoft.setAttribute('y1', hookY);
+      slingRightSoft.setAttribute('x2', rightX);
+      slingRightSoft.setAttribute('y2', loadY);
+
+      const rectX = cx - loadWidth / 2;
+      loadRect.setAttribute('x', rectX);
+      loadRect.setAttribute('y', loadY);
+      loadRect.setAttribute('width', loadWidth);
+
+      hookDot.setAttribute('cx', cx);
+      hookDot.setAttribute('cy', hookY);
+      leftDot.setAttribute('cx', leftX);
+      leftDot.setAttribute('cy', loadY);
+      rightDot.setAttribute('cx', rightX);
+      rightDot.setAttribute('cy', loadY);
+
+      labelVertical.textContent = `θᵥ ≈ ${thetaVdeg.toFixed(1)}°`;
+      labelHorizontal.textContent = `θₕ ≈ ${thetaHdeg.toFixed(1)}°`;
+      labelIncluded.textContent = `Included ≈ ${includedDeg.toFixed(1)}°`;
+
+      labelVertical.setAttribute('x', cx + 6);
+      labelVertical.setAttribute('y', hookY + (loadY - hookY) * 0.45);
+
+      labelHorizontal.setAttribute('x', cx + 20);
+      labelHorizontal.setAttribute('y', hookY - 6);
+
+      labelIncluded.setAttribute('x', cx);
+      labelIncluded.setAttribute('y', hookY - 26);
+    }
+
+    slingLengthInput.addEventListener('input', () => {
+      const L = parseFloat(slingLengthInput.value) || 10;
+      spreadRange.max = (2 * L - 0.01).toFixed(2);
+      if (parseFloat(spreadRange.value) > parseFloat(spreadRange.max)) {
+        spreadRange.value = spreadRange.max;
+      }
+      updateDiagram();
+    });
+
+    spreadRange.addEventListener('input', updateDiagram);
+
+    // init
+    (function init() {
+      const L = parseFloat(slingLengthInput.value) || 10;
+      spreadRange.max = (2 * L - 0.01).toFixed(2);
+      updateDiagram();
+    })();
+  </script>
+</body>
+</html>
