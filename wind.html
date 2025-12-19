@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Wind Go / No-Go — Grove Method (Imperial)</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <h1>Wind Go / No-Go (Grove Method — Imperial)</h1>
+      <p class="sub">
+        Assumes: <b>Main boom only</b>, <b>fully extended outriggers</b>, <b>no jib</b>, <b>full CW</b>.
+      </p>
+    </header>
+
+    <section class="grid">
+      <div class="card">
+        <h2>Wind Input</h2>
+
+        <div class="field">
+          <label>Wind source</label>
+          <div class="radioRow">
+            <label><input type="radio" name="windSource" value="weather" checked> Weather app (mean/sustained at ~33 ft)</label>
+            <label><input type="radio" name="windSource" value="beaufort"> Beaufort estimate</label>
+            <label><input type="radio" name="windSource" value="tip"> Already have boom-tip 3-sec gust V(z)</label>
+          </div>
+        </div>
+
+        <div id="weatherFields">
+          <div class="field two">
+            <div>
+              <label for="windMeanMph">Mean wind (mph)</label>
+              <input id="windMeanMph" type="number" min="0" step="0.1" value="20" />
+            </div>
+            <div>
+              <label for="tipHeightFt">Boom tip height Z (ft)</label>
+              <input id="tipHeightFt" type="number" min="0" step="1" value="75" />
+            </div>
+          </div>
+        </div>
+
+        <div id="beaufortFields" class="hidden">
+          <div class="field two">
+            <div>
+              <label for="beaufortNum">Beaufort number (0–10)</label>
+              <select id="beaufortNum"></select>
+            </div>
+            <div>
+              <label for="tipHeightFt2">Boom tip height Z (ft)</label>
+              <input id="tipHeightFt2" type="number" min="0" step="1" value="75" />
+            </div>
+          </div>
+        </div>
+
+        <div id="tipFields" class="hidden">
+          <div class="field two">
+            <div>
+              <label for="vzInputMph">Boom-tip gust V(z) (mph)</label>
+              <input id="vzInputMph" type="number" min="0" step="0.1" value="28" />
+            </div>
+            <div>
+              <label for="tipHeightFt3">Boom tip height Z (ft)</label>
+              <input id="tipHeightFt3" type="number" min="0" step="1" value="75" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Crane & Pick</h2>
+
+        <div class="field two">
+          <div>
+            <label for="boomLengthFt">Main boom length (ft)</label>
+            <input id="boomLengthFt" type="number" min="0" step="0.1" value="70" />
+          </div>
+          <div>
+            <label for="ratedCapacityLb">Published rated capacity (lb)</label>
+            <input id="ratedCapacityLb" type="number" min="0" step="1" value="4500" />
+            <div class="hint">Must match the exact chart line for this pick.</div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="loadWeightLb">Load weight (lb)</label>
+          <input id="loadWeightLb" type="number" min="0" step="1" value="1500" />
+        </div>
+
+        <div class="divider"></div>
+
+        <h2>Load Shape & Wind Area</h2>
+
+        <div class="field two">
+          <div>
+            <label for="shape">Load shape (sets Cd default)</label>
+            <select id="shape"></select>
+          </div>
+          <div>
+            <label for="cd">Cd (editable)</label>
+            <input id="cd" type="number" min="0" step="0.01" value="1.0" />
+            <div id="cdRangeHint" class="hint"></div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Projected wind area Ap (ft²)</label>
+          <div class="radioRow">
+            <label><input type="radio" name="apMode" value="quick" checked> Quick Inputs (recommended)</label>
+            <label><input type="radio" name="apMode" value="dims"> Advanced: height × length</label>
+            <label><input type="radio" name="apMode" value="direct"> Enter Ap directly</label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Orientation assumption</label>
+          <div class="radioRow">
+            <label><input type="radio" name="orientation" value="broadside" checked> Worst-case broadside (recommended)</label>
+            <label><input type="radio" name="orientation" value="endOn"> End-on / controlled (only if truly prevented from weather-vaning)</label>
+          </div>
+        </div>
+
+        <!-- QUICK INPUTS -->
+        <div id="apQuickFields">
+          <div id="quickHelp" class="hint">
+            Quick Inputs auto-compute Ap using common shapes. If your shape isn’t supported, use Advanced or Direct.
+          </div>
+
+          <div id="quickCylinder" class="quickBlock">
+            <div class="field two">
+              <div>
+                <label for="cylDiaIn">Cylinder diameter (in)</label>
+                <input id="cylDiaIn" type="number" min="0" step="0.1" value="24" />
+              </div>
+              <div>
+                <label for="cylLenFt">Cylinder length (ft)</label>
+                <input id="cylLenFt" type="number" min="0" step="0.1" value="22" />
+              </div>
+            </div>
+            <div class="hint">Broadside: Ap = length × diameter. End-on: Ap = πr².</div>
+          </div>
+
+          <div id="quickBox" class="quickBlock hidden">
+            <div class="field two">
+              <div>
+                <label for="boxHeightIn">Box height facing wind (in)</label>
+                <input id="boxHeightIn" type="number" min="0" step="0.1" value="24" />
+              </div>
+              <div>
+                <label for="boxLenFt">Box length facing wind (ft)</label>
+                <input id="boxLenFt" type="number" min="0" step="0.1" value="10" />
+              </div>
+            </div>
+            <div class="hint">Ap = height × length (worst case).</div>
+          </div>
+
+          <div id="quickSphere" class="quickBlock hidden">
+            <div class="field">
+              <label for="sphDiaIn">Sphere diameter (in)</label>
+              <input id="sphDiaIn" type="number" min="0" step="0.1" value="24" />
+              <div class="hint">Ap = πr² (same from any direction).</div>
+            </div>
+          </div>
+
+          <div id="quickUnsupported" class="quickBlock hidden">
+            <div class="hint">
+              This shape isn’t supported in Quick Inputs yet. Use <b>Advanced</b> or <b>Direct Ap</b>.
+            </div>
+          </div>
+        </div>
+
+        <!-- ADVANCED DIMS -->
+        <div id="apDimsFields" class="hidden">
+          <div class="field two">
+            <div>
+              <label for="dimHeightFt">Max height facing wind (ft)</label>
+              <input id="dimHeightFt" type="number" min="0" step="0.01" value="2" />
+            </div>
+            <div>
+              <label for="dimLengthFt">Max length facing wind (ft)</label>
+              <input id="dimLengthFt" type="number" min="0" step="0.01" value="22" />
+            </div>
+          </div>
+          <div class="hint">Advanced mode uses Ap = height × length. Orientation toggle can still be used for cylinder/sphere end-on.</div>
+        </div>
+
+        <!-- DIRECT -->
+        <div id="apDirectFields" class="hidden">
+          <div class="field">
+            <label for="apDirect">Ap (ft²)</label>
+            <input id="apDirect" type="number" min="0" step="0.01" value="44" />
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <button id="calcBtn" class="btn">Calculate GO / NO-GO</button>
+      </div>
+    </section>
+
+    <section class="resultWrap">
+      <div id="resultCard" class="resultCard neutral">
+        <div class="resultTop">
+          <div>
+            <div class="badge" id="badge">READY</div>
+            <h2 id="resultTitle">Enter values and calculate</h2>
+            <p id="resultReason" class="reason"></p>
+          </div>
+          <div class="big" id="bigOut">—</div>
+        </div>
+
+        <details class="details" open>
+          <summary>Show my work</summary>
+          <div class="workGrid">
+            <div class="workItem"><span>Computed V(z) (mph)</span><b id="outVz">—</b></div>
+            <div class="workItem"><span>Wind band</span><b id="outBand">—</b></div>
+            <div class="workItem"><span>Reduction factor</span><b id="outFactor">—</b></div>
+            <div class="workItem"><span>Allowable load m(allow) (lb)</span><b id="outAllow">—</b></div>
+
+            <div class="workItem"><span>Ap (ft²)</span><b id="outAp">—</b></div>
+            <div class="workItem"><span>Cd</span><b id="outCd">—</b></div>
+            <div class="workItem"><span>Awr(load) (ft²)</span><b id="outAwrLoad">—</b></div>
+            <div class="workItem"><span>Awr(allow) (ft²)</span><b id="outAwrAllow">—</b></div>
+
+            <div class="workItem"><span>Ratio R</span><b id="outRatio">—</b></div>
+            <div class="workItem"><span>Rounded ratio (table)</span><b id="outRatioStep">—</b></div>
+            <div class="workItem"><span>Max permissible wind (mph)</span><b id="outVmax">—</b></div>
+          </div>
+        </details>
+
+        <p class="disclaimer">
+          Aid, not authority. Follow your operator manual and lift plan. If conditions change, stop.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
