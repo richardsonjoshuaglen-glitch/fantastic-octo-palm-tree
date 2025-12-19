@@ -4,14 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Wind Go / No-Go — Grove Method (Imperial)</title>
-  <link rel="stylesheet" href="styles.css" />
+  <meta name="theme-color" content="#111827" />
+  <link rel="stylesheet" href="wind.css" />
 </head>
 <body>
   <main class="container">
     <header class="header">
       <h1>Wind Go / No-Go (Grove Method — Imperial)</h1>
       <p class="sub">
-        Assumes: <b>Main boom only</b>, <b>fully extended outriggers</b>, <b>no jib</b>, <b>full CW</b>.
+        Locked assumptions: <b>Main boom only</b>, <b>fully extended outriggers</b>, <b>no jib</b>, <b>full CW</b>.
       </p>
     </header>
 
@@ -33,6 +34,7 @@
             <div>
               <label for="windMeanMph">Mean wind (mph)</label>
               <input id="windMeanMph" type="number" min="0" step="0.1" value="20" />
+              <div class="hint">Use sustained/mean from app when possible.</div>
             </div>
             <div>
               <label for="tipHeightFt">Boom tip height Z (ft)</label>
@@ -46,6 +48,7 @@
             <div>
               <label for="beaufortNum">Beaufort number (0–10)</label>
               <select id="beaufortNum"></select>
+              <div class="hint">Uses “Maximum Wind Speed (mph)” from the Beaufort table.</div>
             </div>
             <div>
               <label for="tipHeightFt2">Boom tip height Z (ft)</label>
@@ -59,27 +62,29 @@
             <div>
               <label for="vzInputMph">Boom-tip gust V(z) (mph)</label>
               <input id="vzInputMph" type="number" min="0" step="0.1" value="28" />
+              <div class="hint">If you have true boom-tip 3-sec gust.</div>
             </div>
             <div>
               <label for="tipHeightFt3">Boom tip height Z (ft)</label>
               <input id="tipHeightFt3" type="number" min="0" step="1" value="75" />
+              <div class="hint">Stored for display only in this mode.</div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div class="card">
+        <div class="divider"></div>
+
         <h2>Crane & Pick</h2>
-
         <div class="field two">
           <div>
             <label for="boomLengthFt">Main boom length (ft)</label>
             <input id="boomLengthFt" type="number" min="0" step="0.1" value="70" />
+            <div class="hint">Used for the 30–45 mph reduction factor.</div>
           </div>
           <div>
             <label for="ratedCapacityLb">Published rated capacity (lb)</label>
             <input id="ratedCapacityLb" type="number" min="0" step="1" value="4500" />
-            <div class="hint">Must match the exact chart line for this pick.</div>
+            <div class="hint">Enter from the correct load chart line for this exact pick.</div>
           </div>
         </div>
 
@@ -87,9 +92,9 @@
           <label for="loadWeightLb">Load weight (lb)</label>
           <input id="loadWeightLb" type="number" min="0" step="1" value="1500" />
         </div>
+      </div>
 
-        <div class="divider"></div>
-
+      <div class="card">
         <h2>Load Shape & Wind Area</h2>
 
         <div class="field two">
@@ -117,17 +122,18 @@
           <label>Orientation assumption</label>
           <div class="radioRow">
             <label><input type="radio" name="orientation" value="broadside" checked> Worst-case broadside (recommended)</label>
-            <label><input type="radio" name="orientation" value="endOn"> End-on / controlled (only if truly prevented from weather-vaning)</label>
+            <label><input type="radio" name="orientation" value="endOn"> End-on / controlled</label>
           </div>
+          <div class="hint">End-on only makes sense if you can truly prevent the load from weather-vaning.</div>
         </div>
 
         <!-- QUICK INPUTS -->
-        <div id="apQuickFields">
+        <div id="apQuickFields" class="quickBlock">
           <div id="quickHelp" class="hint">
-            Quick Inputs auto-compute Ap using common shapes. If your shape isn’t supported, use Advanced or Direct.
+            Quick Inputs auto-calculate Ap. Defaults are conservative.
           </div>
 
-          <div id="quickCylinder" class="quickBlock">
+          <div id="quickCylinder">
             <div class="field two">
               <div>
                 <label for="cylDiaIn">Cylinder diameter (in)</label>
@@ -141,7 +147,7 @@
             <div class="hint">Broadside: Ap = length × diameter. End-on: Ap = πr².</div>
           </div>
 
-          <div id="quickBox" class="quickBlock hidden">
+          <div id="quickBox" class="hidden">
             <div class="field two">
               <div>
                 <label for="boxHeightIn">Box height facing wind (in)</label>
@@ -155,17 +161,17 @@
             <div class="hint">Ap = height × length (worst case).</div>
           </div>
 
-          <div id="quickSphere" class="quickBlock hidden">
+          <div id="quickSphere" class="hidden">
             <div class="field">
               <label for="sphDiaIn">Sphere diameter (in)</label>
               <input id="sphDiaIn" type="number" min="0" step="0.1" value="24" />
-              <div class="hint">Ap = πr² (same from any direction).</div>
             </div>
+            <div class="hint">Ap = πr² (same from any direction).</div>
           </div>
 
-          <div id="quickUnsupported" class="quickBlock hidden">
+          <div id="quickUnsupported" class="hidden">
             <div class="hint">
-              This shape isn’t supported in Quick Inputs yet. Use <b>Advanced</b> or <b>Direct Ap</b>.
+              This shape isn’t supported in Quick Inputs. Use Advanced or Direct.
             </div>
           </div>
         </div>
@@ -182,7 +188,7 @@
               <input id="dimLengthFt" type="number" min="0" step="0.01" value="22" />
             </div>
           </div>
-          <div class="hint">Advanced mode uses Ap = height × length. Orientation toggle can still be used for cylinder/sphere end-on.</div>
+          <div class="hint">Advanced uses Ap = height × length. End-on works for cylinder/sphere only.</div>
         </div>
 
         <!-- DIRECT -->
@@ -236,6 +242,6 @@
     </section>
   </main>
 
-  <script src="app.js"></script>
+  <script src="wind.js"></script>
 </body>
 </html>
